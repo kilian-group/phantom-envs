@@ -1,0 +1,33 @@
+# Ruff configuration — fast linting and formatting for phantom-envs
+# Documentation: https://docs.astral.sh/ruff/configuration/
+
+exclude = [
+    ".git",
+    ".venv",
+    "__pycache__",
+    "wandb",
+    "data/",
+    "scratch/",
+    "share/",
+    "logs/",
+]
+
+line-length = 110
+target-version = "py312"
+
+[lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+[format]
+quote-style = "double"
+indent-style = "space"

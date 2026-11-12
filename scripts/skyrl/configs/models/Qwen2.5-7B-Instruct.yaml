@@ -1,0 +1,9 @@
+# Qwen2.5-7B-Instruct: base sampling, smaller vLLM share to leave room for the 7B policy.
+trainer:
+  policy:
+    model:
+      path: Qwen/Qwen2.5-7B-Instruct
+
+generator:
+  inference_engine:
+    gpu_memory_utilization: 0.5

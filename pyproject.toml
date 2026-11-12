@@ -1,0 +1,125 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "phantom-envs"
+description = "PhantomEnvironments: Training LLM Agents in Fictional Worlds"
+version = "0.1.0"
+authors = [
+    {name = "Anmol Kabra", email = "anmol@cs.cornell.edu"},
+    {name = "Swathi Saravana Selvam", email = "ss4522@cornell.edu"},
+    {name = "Albert Gong", email = "agong@cs.cornell.edu"},
+    {name = "Chao Wan", email = "cw862@cornell.edu"},
+    {name = "Christian Belardi", email = "ckb73@cornell.edu"},
+    {name = "Dongyoung Go", email = "dg793@cornell.edu"},
+    {name = "Katie Z. Luo", email = "katieluo@stanford.edu"},
+    {name = "Kilian Q. Weinberger", email = "kqw4@cornell.edu"},
+]
+readme = "README.md"
+requires-python = "==3.12.*"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    # phantom_envs: environment generation (needs SWI-Prolog installed), the search protocol, scoring
+    # and the retriever client
+    "numpy",
+    "pydantic",
+    "requests",
+    "omegaconf",
+    "tqdm",
+    "nltk",
+    "pyswip",
+    "networkx",
+]
+
+[project.optional-dependencies]
+# SkyRL training and evaluation (FSDP2 backend with vLLM), with everything around it: the retrieval
+# server and index builder (FAISS comes from `uv run --with faiss-cpu==1.12.0`, or conda's faiss-gpu
+# for Search-R1's 21M-document index), the benchmark builders (FRAMES fetches Wikipedia wikitext at a
+# pinned revision) and reproduce_paper/ (lm-eval for the paper's MMLU eval)
+skyrl = [
+    "skyrl[fsdp]",
+    "wandb",
+    "transformers",
+    "safetensors",
+    "fastapi",
+    "uvicorn",
+    "sentence-transformers",
+    "datasets",
+    "huggingface_hub[cli]",
+    "mwparserfromhell",
+    "pandas",
+    "pyarrow",
+    "tabulate",
+    "matplotlib",
+    "pyyaml",
+    "lm-eval",
+]
+dev = [
+    "pre-commit",
+    "pytest",
+    "ruff",
+]
+
+[project.scripts]
+phantom_envs = "phantom_envs.__main__:cli"
+
+[project.urls]
+Homepage = "https://github.com/kilian-group/phantom-envs"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"phantom_envs.generator" = ["data/*.json", "rules/*.pl"]
+
+[tool.pytest.ini_options]
+# Only the test dirs: data/ and scratch/ can be links to large shared storage
+testpaths = ["tests", "reproduce_paper/tests"]
+
+[tool.uv]
+index-strategy = "unsafe-best-match"
+constraint-dependencies = [
+    "flashinfer-jit-cache==0.6.3",
+    # 4.6.0 dropped cute.core.ThrMma, which flash-attn 2.8.3 uses
+    "nvidia-cutlass-dsl<4.6.0",
+]
+# SkyRL's fsdp and other GPU extras conflict — select only fsdp
+conflicts = [
+    [
+        {package = "skyrl", extra = "jax"},
+        {package = "skyrl", extra = "megatron"},
+        {package = "skyrl", extra = "fsdp"},
+        {package = "skyrl", extra = "flashrl"},
+    ],
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "flashinfer-cu128"
+url = "https://flashinfer.ai/whl/cu128"
+explicit = true
+
+# flash-attn builds against torch but doesn't declare it as a build dep
+[tool.uv.extra-build-dependencies]
+flash-attn = [{requirement = "torch", match-runtime = true}]
+
+[tool.uv.extra-build-variables]
+# When vllm builds from source (glibc < 2.31, where its PyPI wheel can't be used), keep its version
+# 0.16.0 without a +cu128 suffix. Update this when bumping vllm in the lockfile.
+vllm = {VLLM_VERSION_OVERRIDE = "0.16.0"}
+
+[tool.uv.sources]
+skyrl = {git = "https://github.com/novasky-ai/SkyRL", rev = "298bebc"}
+torch = {index = "pytorch-cu128", marker = "sys_platform == 'linux'"}
+torchvision = {index = "pytorch-cu128", marker = "sys_platform == 'linux'"}
+flashinfer-jit-cache = {index = "flashinfer-cu128", marker = "sys_platform == 'linux'"}

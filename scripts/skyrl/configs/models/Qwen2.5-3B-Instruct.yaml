@@ -1,0 +1,5 @@
+# Qwen2.5-3B-Instruct: the base config's model (listed for symmetry; changes nothing).
+trainer:
+  policy:
+    model:
+      path: Qwen/Qwen2.5-3B-Instruct

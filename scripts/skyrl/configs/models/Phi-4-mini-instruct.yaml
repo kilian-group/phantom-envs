@@ -1,0 +1,11 @@
+# Phi-4-mini-instruct: its recommended sampling (temperature 0.8, top_p 0.95).
+# Loads remote code that needs the LossKwargs shim in phantom_envs.integrations.skyrl.
+trainer:
+  policy:
+    model:
+      path: microsoft/Phi-4-mini-instruct
+
+generator:
+  sampling_params:
+    temperature: 0.8
+    top_p: 0.95

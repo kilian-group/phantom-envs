@@ -1,0 +1,23 @@
+# Search-R1 (NQ + HotpotQA) training: exact-match reward, no validation, and the paper's fixed
+# cadences (20 steps, matching the PhantomEnvs runs).
+data:
+  train_data: ["data/searchr1/train.parquet"]
+  val_data: []
+
+trainer:
+  policy:
+    optimizer_config:
+      num_warmup_steps: 20
+  ckpt_interval: 20
+  hf_save_interval: 20
+  eval_interval: -1
+  eval_before_train: false
+
+generator:
+  inference_engine:
+    gpu_memory_utilization: 0.5  # leaves GPU memory for a faiss-gpu Wikipedia index
+
+environment:
+  skyrl_gym:
+    phantom_search:
+      reward_func: em

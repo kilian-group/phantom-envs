@@ -1,0 +1,12 @@
+# Llama-3.2-3B-Instruct: its recommended sampling (temperature 0.6, top_p 0.9).
+trainer:
+  policy:
+    model:
+      path: meta-llama/Llama-3.2-3B-Instruct
+
+generator:
+  inference_engine:
+    gpu_memory_utilization: 0.5
+  sampling_params:
+    temperature: 0.6
+    top_p: 0.9

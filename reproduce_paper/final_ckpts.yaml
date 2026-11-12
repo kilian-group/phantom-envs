@@ -1,0 +1,133 @@
+# The paper's checkpoints: which training run (and step) fills each model x training-environment
+# cell of the figures and tables. reproduce_paper/scripts/save_transfer_data.py and the plotting scripts
+# read it to find each checkpoint's evals (out__eval=*/model=<compact_model_slug>).
+#
+# Paths are training run dirs, relative to the repo root; ours are under share/, a link to our
+# cluster's shared runs dir. To reproduce, point each path at your run under $RUN_BASE_DIR
+# (see reproduce_paper/README.md). HF exports are at <path>/exports/global_step_<N>/policy;
+# ckpt_to_eval -1 means the latest. A null path is a run that was never trained.
+
+base_models:
+  - model: Qwen/Qwen2.5-3B-Instruct
+  - model: Qwen/Qwen2.5-7B-Instruct
+  - model: microsoft/Phi-4-mini-instruct
+  - model: meta-llama/Llama-3.2-3B-Instruct
+
+searchr1_own_trained:
+  - model: Qwen/Qwen2.5-3B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__main_e5_Flat/searchr1/Qwen/Qwen2.5-3B-Instruct/grpo/ak2426/05-02__r=em__curr=random__max_t=10__s=1
+    ckpt_to_eval: 220
+
+  - model: Qwen/Qwen2.5-3B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__main_e5_Flat/searchr1/Qwen/Qwen2.5-3B-Instruct/grpo/ak2426/07-26__r=em__curr=random__max_t=10__s=2
+    ckpt_to_eval: 220
+
+  - model: Qwen/Qwen2.5-7B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__main_e5_Flat/searchr1/Qwen/Qwen2.5-7B-Instruct/grpo/ak2426/05-04__r=em__curr=random__max_t=10__s=1
+    ckpt_to_eval: 220
+
+  - model: Qwen/Qwen2.5-7B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__main_e5_Flat/searchr1/Qwen/Qwen2.5-7B-Instruct/grpo/ak2426/07-26__r=em__curr=random__max_t=10__s=2
+    ckpt_to_eval: 220
+
+  - model: meta-llama/Llama-3.2-3B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__main_e5_Flat/searchr1/meta-llama/Llama-3.2-3B-Instruct/grpo/ak2426/07-25__r=em__curr=random__max_t=10__s=1
+    ckpt_to_eval: 220
+
+  # NOTE: using intermediate checkpoint before crash
+  - model: meta-llama/Llama-3.2-3B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__main_e5_Flat/searchr1/meta-llama/Llama-3.2-3B-Instruct/grpo/ak2426/07-30__r=em__curr=random__max_t=10__s=2
+    # ckpt_to_eval: 220 # also present but training had collapsed after 120
+    ckpt_to_eval: 120
+
+  - model: microsoft/Phi-4-mini-instruct
+    training_retriever: e5_Flat
+    path: share/runs__main_e5_Flat/searchr1/microsoft/Phi-4-mini-instruct/grpo/ak2426/05-03__r=em__curr=random__max_t=10__s=1
+    ckpt_to_eval: 100
+
+pw_trained:
+  - model: Qwen/Qwen2.5-3B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__50k_main_e5_Flat/pw/Qwen/Qwen2.5-3B-Instruct/grpo/ak2426/05-01__r=f1__curr=random__max_t=10__s=1
+    ckpt_to_eval: -1
+
+  - model: Qwen/Qwen2.5-3B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__50k_main_e5_Flat/pw/Qwen/Qwen2.5-3B-Instruct/grpo/ak2426/07-23__r=f1__curr=random__max_t=10__s=2
+    ckpt_to_eval: -1
+
+  - model: Qwen/Qwen2.5-7B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__50k_main_e5_Flat/pw/Qwen/Qwen2.5-7B-Instruct/grpo/ak2426/05-03__r=f1__curr=random__max_t=10__s=1
+    ckpt_to_eval: -1
+
+  - model: Qwen/Qwen2.5-7B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__50k_main_e5_Flat/pw/Qwen/Qwen2.5-7B-Instruct/grpo/ak2426/07-23__r=f1__curr=random__max_t=10__s=2
+    ckpt_to_eval: -1
+
+  - model: meta-llama/Llama-3.2-3B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__50k_main_e5_Flat/pw/meta-llama/Llama-3.2-3B-Instruct/grpo/ak2426/07-26__r=f1__curr=random__max_t=10__s=1
+    ckpt_to_eval: -1
+
+  - model: meta-llama/Llama-3.2-3B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__50k_main_e5_Flat/pw/meta-llama/Llama-3.2-3B-Instruct/grpo/ak2426/07-26__r=f1__curr=random__max_t=10__s=2
+    ckpt_to_eval: -1
+
+  - model: microsoft/Phi-4-mini-instruct
+    training_retriever: e5_Flat
+    path: share/runs__50k_main_e5_Flat/pw/microsoft/Phi-4-mini-instruct/grpo/ak2426/05-01__r=f1__curr=random__max_t=10__s=1
+    ckpt_to_eval: -1
+
+pwcons_trained:
+  - model: Qwen/Qwen2.5-3B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__50k_main_e5_Flat/pb/Qwen/Qwen2.5-3B-Instruct/grpo/ak2426/04-30__r=f1__curr=random__max_t=10__s=1
+    ckpt_to_eval: -1
+
+  - model: Qwen/Qwen2.5-3B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__50k_main_e5_Flat/pb/Qwen/Qwen2.5-3B-Instruct/grpo/ak2426/08-10__r=f1__curr=random__max_t=10__s=2
+    ckpt_to_eval: -1
+
+  # NOTE: using intermediate checkpoint before crash
+  - model: meta-llama/Llama-3.2-3B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__50k_main_e5_Flat/pb/meta-llama/Llama-3.2-3B-Instruct/grpo/ak2426/08-10__r=f1__curr=random__max_t=10__s=1
+    ckpt_to_eval: 189
+    # ckpt to eval: -1
+
+  - model: meta-llama/Llama-3.2-3B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__50k_main_e5_Flat/pb/meta-llama/Llama-3.2-3B-Instruct/grpo/ak2426/08-10__r=f1__curr=random__max_t=10__s=2
+    ckpt_to_eval: -1
+
+
+pwcomp_trained:
+  - model: Qwen/Qwen2.5-3B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__50k_main_e5_Flat_balanced/pwcomp/Qwen/Qwen2.5-3B-Instruct/grpo/ak2426/05-05__r=f1__curr=random__max_t=10__s=1
+    ckpt_to_eval: -1
+
+  - model: Qwen/Qwen2.5-3B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__50k_main_e5_Flat_balanced/pwcomp/Qwen/Qwen2.5-3B-Instruct/grpo/ak2426/08-10__r=f1__curr=random__max_t=10__s=2
+    ckpt_to_eval: -1
+
+  - model: meta-llama/Llama-3.2-3B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__50k_main_e5_Flat_balanced/pwcomp/meta-llama/Llama-3.2-3B-Instruct/grpo/ak2426/08-10__r=f1__curr=random__max_t=10__s=1
+    ckpt_to_eval: -1
+
+  - model: meta-llama/Llama-3.2-3B-Instruct
+    training_retriever: e5_Flat
+    path: share/runs__50k_main_e5_Flat_balanced/pwcomp/meta-llama/Llama-3.2-3B-Instruct/grpo/ak2426/08-10__r=f1__curr=random__max_t=10__s=2
+    ckpt_to_eval: -1

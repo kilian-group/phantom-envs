@@ -1,0 +1,12 @@
+# Paper eval setup for scripts/skyrl/eval.py, stacked last: base.yaml, then models/<model>.yaml, then
+# this file. One GPU per eval (no policy worker, so vLLM takes most of its memory), 20 turns and a
+# 32768-token input (vLLM's context is capped at the model's max_position_embeddings).
+trainer:
+  placement:
+    policy_num_gpus_per_node: 1
+
+generator:
+  inference_engine:
+    gpu_memory_utilization: 0.8
+  max_input_length: 32768
+  max_turns: 20

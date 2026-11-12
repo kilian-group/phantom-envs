@@ -1,0 +1,129 @@
+# Base SkyRL config: GRPO on PhantomWiki (Hops) with Qwen2.5-3B-Instruct on a 2xB200 node.
+#
+# Stack more yamls on top with repeated --config, in this order (later files win):
+#   models/<model>.yaml   model path, sampling params, vLLM memory share (Qwen2.5-3B-Instruct is this file)
+#   envs/<env>.yaml       pwcons, pwcomp or searchr1 data and settings (PhantomWiki is this file)
+#   eval.yaml             the paper's eval setup (one GPU, 20 turns), last for scripts/skyrl/eval.py
+# Other GPU setups take CLI overrides, e.g. generator.inference_engine.gpu_memory_utilization=0.5
+#
+# Usage:
+#   uv run python scripts/skyrl/train.py --config scripts/skyrl/configs/base.yaml \
+#       --config scripts/skyrl/configs/models/Llama-3.2-3B-Instruct.yaml \
+#       ... # any SkyRL overrides
+
+# ---------------------------------------------------------------------------
+# Data
+# ---------------------------------------------------------------------------
+data:
+  train_data: ["data/pw/depth_16_size_1000_seed_1_50k/train.parquet"]
+  val_data: ["data/pw/depth_16_size_1000_seed_1_50k/validation.parquet"]
+
+# ---------------------------------------------------------------------------
+# Trainer
+# ---------------------------------------------------------------------------
+trainer:
+  strategy: fsdp2
+  seed: 1
+
+  # Model
+  policy:
+    model:
+      path: Qwen/Qwen2.5-3B-Instruct
+    optimizer_config:
+      lr: 1.0e-6
+      max_grad_norm: 1.0  # default in transformers Trainer
+      # num_warmup_steps: 0  # automatically set to 10% of total training steps in scripts/skyrl/train.py
+    fsdp_config:
+      cpu_offload: false
+
+  ref:
+    fsdp_config:
+      cpu_offload: true
+
+  # GRPO algorithm
+  algorithm:
+    advantage_estimator: grpo
+    use_kl_loss: false
+    off_policy_correction:
+      tis_ratio_type: token
+      token_tis_ratio_clip_high: 2.0
+
+  # GPU placement: policy and vLLM engines share every GPU of the node
+  placement:
+    colocate_all: true
+    policy_num_gpus_per_node: 2
+
+  # Batch sizes
+  epochs: 1
+  update_epochs_per_batch: 1
+  train_batch_size: 256
+  policy_mini_batch_size: 256
+  micro_forward_batch_size_per_gpu: 16
+  micro_train_batch_size_per_gpu: 16
+  max_prompt_length: 8192
+
+  # Checkpointing
+  # ckpt_interval and hf_save_interval are auto-set to 10% of total training
+  # steps in scripts/skyrl/train.py when omitted here. hf_save_interval > 0 is needed
+  # for scripts/skyrl/eval.py to load HF-format weights.
+  max_ckpts_to_keep: 1
+  resume_mode: latest
+  bf16: true  # NOTE: no effect on policy model since that is trained with fp32
+
+  # Evaluation
+  # eval_interval is also auto-set to 10% of total training steps.
+  eval_batch_size: 512
+  eval_before_train: true
+  dump_eval_results: true
+
+  # Logging
+  logger: wandb
+  project_name: ${oc.env:WANDB_PROJECT,phantom-envs}
+
+# ---------------------------------------------------------------------------
+# Generator (vLLM rollout)
+# ---------------------------------------------------------------------------
+generator:
+  inference_engine:
+    num_engines: ${trainer.placement.policy_num_gpus_per_node}  # one engine per GPU
+    tensor_parallel_size: 1
+    backend: vllm
+    run_engines_locally: true
+    weight_sync_backend: nccl
+    gpu_memory_utilization: 0.6
+    async_engine: true
+
+  max_input_length: 8192
+  batched: false
+  use_conversation_multi_turn: false
+  n_samples_per_prompt: 8
+  max_turns: 10
+
+  sampling_params:
+    max_generate_length: 500
+    temperature: 1.0
+    top_p: 1.0
+    stop:
+      - "</search>"
+      - "</answer>"
+
+  # Same sampling as training
+  eval_sampling_params:
+    max_generate_length: ${generator.sampling_params.max_generate_length}
+    temperature: ${generator.sampling_params.temperature}
+    top_p: ${generator.sampling_params.top_p}
+    stop: ${generator.sampling_params.stop}
+
+# ---------------------------------------------------------------------------
+# Environment (PhantomSearchEnv)
+# ---------------------------------------------------------------------------
+environment:
+  env_class: phantom_search
+  skyrl_gym:
+    max_env_workers: 32
+    phantom_search:
+      log_requests: false
+      search_url: http://127.0.0.1:8000/retrieve
+      topk: 3
+      pool_size: 32
+      reward_func: f1
