@@ -91,7 +91,6 @@ generator:
     run_engines_locally: true
     weight_sync_backend: nccl
     gpu_memory_utilization: 0.6
-    async_engine: true
 
   max_input_length: 8192
   batched: false

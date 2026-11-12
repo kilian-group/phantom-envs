@@ -55,7 +55,9 @@ def eval_entrypoint(cfg: SkyRLTrainConfig) -> dict[str, Any]:
     from phantom_envs.integrations.skyrl import register
 
     register()
-    return asyncio.run(EvalOnlyEntrypoint(cfg).run())
+    exp = EvalOnlyEntrypoint(cfg)
+    # As in SkyRL's own eval entrypoint: the client is built outside asyncio.run
+    return asyncio.run(exp.run(exp.get_inference_client()))
 
 
 def main(args: argparse.Namespace) -> None:
