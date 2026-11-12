@@ -4,6 +4,8 @@
 trainer:
   placement:
     policy_num_gpus_per_node: 1
+    # Gotcha: colocated vLLM sleeps after startup and drops its weights, which only a trainer reloads
+    colocate_all: false
 
 generator:
   inference_engine:
