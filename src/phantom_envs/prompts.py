@@ -1,4 +1,5 @@
-"""Prompts for the search agent, shared by training and evaluation on every data source."""
+"""Prompts for the search agent and the shell agent, shared by training and evaluation on every
+data source."""
 
 SYSTEM_PROMPT: str = "You are a helpful and harmless assistant."
 
@@ -23,4 +24,25 @@ def build_messages(question: str) -> list[dict[str, str]]:
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": USER_PROMPT_PREFIX + question},
+    ]
+
+
+# Shell episodes (phantom_envs.shell). As in a Harbor task's instruction.md, the user message holds the
+# whole task; the chat template adds the bash tool's description to the system message.
+SHELL_SYSTEM_PROMPT: str = "You are a helpful assistant."
+
+SHELL_INSTRUCTION: str = (
+    "Answer the question below using the documents in /corpus, one file per document. "
+    "Search and read them with the bash tool, and base your answer only on what they say.\n\n"
+    "Write your final answer to /app/output.md as a single line, with multiple answers separated by "
+    "commas (for example: Alice, Bob). Only /app/output.md is graded.\n\n"
+    "Question: {question}"
+)
+
+
+def build_shell_messages(question: str) -> list[dict[str, str]]:
+    """Return the system and user chat messages that open a shell episode for ``question``."""
+    return [
+        {"role": "system", "content": SHELL_SYSTEM_PROMPT},
+        {"role": "user", "content": SHELL_INSTRUCTION.format(question=question)},
     ]

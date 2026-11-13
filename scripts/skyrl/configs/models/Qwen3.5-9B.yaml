@@ -1,0 +1,29 @@
+# Qwen3.5-9B (Gated DeltaNet + attention, with a vision tower we skip), in non-thinking mode.
+# GDN settings follow SkyRL's examples/train/megatron/run_megatron_dapo_qwen3.5_9b.sh. Unlike that
+# recipe, micro-batches are packed: with language_model_only, Megatron runs the text-only GPTModel,
+# whose GDN layers take packed sequences.
+#
+# Gotcha: training JIT-compiles the GDN backward with nvcc; set CUDA_HOME in .env (the system CUDA 13).
+trainer:
+  policy:
+    model:
+      path: Qwen/Qwen3.5-9B
+    language_model_only: true
+    megatron_config:
+      tensor_model_parallel_size: 4
+      pipeline_model_parallel_size: 1
+  ref:
+    language_model_only: true
+  # Micro-batches by token budget, not by sequence count
+  max_tokens_per_microbatch: 16384
+
+generator:
+  inference_engine:
+    language_model_only: true
+    distributed_executor_backend: mp
+    # As in SkyRL's recipe: CUDA graphs can be unstable for GDN models
+    enforce_eager: true
+    engine_init_kwargs:
+      gdn_prefill_backend: triton
+  chat_template_kwargs:
+    enable_thinking: false

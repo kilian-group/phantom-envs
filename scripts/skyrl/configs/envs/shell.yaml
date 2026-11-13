@@ -1,0 +1,31 @@
+# The phantom_shell env (phantom_envs.shell): a coding agent answers with a bash tool in a ShellSim
+# sandbox that holds the data dir's corpus as files. launch_skyrl.sh stacks this file right after
+# base.yaml for `<train|eval> shell <data_dir>` and sets corpus_path.
+#
+# Turns end at the end-of-turn token (no stop strings), and tool outputs go back as tool messages
+# through the chat template. Prepare the data with `prepare_data.py --env shell`.
+generator:
+  use_conversation_multi_turn: true
+  # Training budget; eval.yaml (stacked last for evals) sets the paper's 20 turns and 32768 tokens
+  max_turns: 20
+  max_input_length: 16384
+  sampling_params:
+    max_generate_length: 2048
+    stop: null
+  chat_template_kwargs:
+    # phantom_envs.shell runs calls to this tool: name bash, parameter command
+    tools:
+      - type: function
+        function:
+          name: bash
+          description: Run a bash command and return its output.
+          parameters:
+            type: object
+            properties:
+              command:
+                type: string
+                description: The command to run.
+            required: [command]
+
+environment:
+  env_class: phantom_shell

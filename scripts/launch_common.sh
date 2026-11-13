@@ -11,7 +11,7 @@
 #   NUM_GPUS (for Ray: CUDA_VISIBLE_DEVICES, else the whole node) and TRAINER_GPUS (for the
 #   trainer; empty for an eval without CUDA_VISIBLE_DEVICES, so eval.yaml's single GPU applies).
 # Arguments:
-#   <train|eval> <e5|qwen3-4b> <data_dir> [args]...
+#   <train|eval> <e5|qwen3-4b|shell> <data_dir> [args]...
 #######################################
 launch_setup() {
     if [ $# -lt 3 ]; then
@@ -75,7 +75,7 @@ launch_setup() {
     echo "-------------------------------"
     echo "PhantomEnvs $MODE with $(basename "$0") (run $RUN_ID)"
     echo "  data dir:   $DATA_DIR"
-    echo "  retriever:  $ENCODER ${RETRIEVER_ARGS[*]:-} (log: $RETRIEVER_LOG)"
+    echo "  retriever:  $ENCODER ${RETRIEVER_ARGS[*]:-} (log: $RETRIEVER_LOG; none for shell)"
     echo "  GPUs:       $CUDA_VISIBLE_DEVICES (trainer: ${TRAINER_GPUS:-as in the eval config})"
     echo "  args:       ${TRAINER_ARGS[*]:-}"
     echo "-------------------------------"

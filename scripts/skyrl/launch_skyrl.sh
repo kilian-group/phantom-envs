@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
-# Run one SkyRL training or eval job on this node, with a retrieval server over <data_dir>.
+# Run one SkyRL training or eval job on this node, with a retrieval server over <data_dir>, or with
+# the shell env (a coding agent with bash over <data_dir>/corpus.jsonl, no retriever).
 #
 # Usage:
-#   bash scripts/skyrl/launch_skyrl.sh <train|eval> <e5|qwen3-4b> <data_dir> [--config <yaml>]... [overrides]...
+#   bash scripts/skyrl/launch_skyrl.sh <train|eval> <e5|qwen3-4b|shell> <data_dir> [--config <yaml>]... [overrides]...
 #
 #   train         trains on <data_dir>/{train,validation}.parquet
 #   eval          evaluates on <data_dir>/validation.parquet, with configs/eval.yaml last; needs --out_dir=<dir>
 #   e5|qwen3-4b   retriever encoder: e5 for training, qwen3-4b for paper evals
+#   shell         the phantom_shell env: <data_dir>/shell/*.parquet (prepare_data.py --env shell), with
+#                 configs/envs/shell.yaml right after base.yaml
 #   retriever.*   retriever settings, e.g. retriever.faiss_gpu=true for Search-R1
 #   overrides     SkyRL settings in dot notation, and --out_dir / --run_dir / --name
 #
@@ -17,23 +20,33 @@
 #   bash scripts/skyrl/launch_skyrl.sh train e5 data/pw/depth_16_size_1000_seed_1_50k trainer.seed=2
 #   CUDA_VISIBLE_DEVICES=3 bash scripts/skyrl/launch_skyrl.sh eval qwen3-4b data/hp500 --out_dir=out__eval=hp500 \
 #       trainer.policy.model.path=<run>/exports/global_step_160/policy
+#   bash scripts/skyrl/launch_skyrl.sh eval shell data/hp500 --config scripts/skyrl/configs/models/Qwen3.5-9B.yaml \
+#       --out_dir=out__eval=hp500__shell
 set -euo pipefail
 
 usage() {
-    sed -n '4,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '5,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 source "$(dirname "${BASH_SOURCE[0]}")/../launch_common.sh"
 launch_setup "$@"
 
 CONFIGS=scripts/skyrl/configs
+PARQUET_DIR=$DATA_DIR
+ENV_ARGS=()
+if [ "$ENCODER" = shell ]; then
+    PARQUET_DIR=$DATA_DIR/shell
+    # Absolute: Ray runs the entrypoint from its own working dir
+    ENV_ARGS=(--config "$CONFIGS/envs/shell.yaml"
+        "environment.skyrl_gym.phantom_shell.corpus_path=$(cd "$DATA_DIR" && pwd)/corpus.jsonl")
+fi
 case $MODE in
     train)
-        DATA_ARGS=("data.train_data=[$DATA_DIR/train.parquet]" "data.val_data=[$DATA_DIR/validation.parquet]")
+        DATA_ARGS=("data.train_data=[$PARQUET_DIR/train.parquet]" "data.val_data=[$PARQUET_DIR/validation.parquet]")
         LAST_CONFIGS=()
         ;;
     eval)
-        DATA_ARGS=("data.val_data=[$DATA_DIR/validation.parquet]")
+        DATA_ARGS=("data.val_data=[$PARQUET_DIR/validation.parquet]")
         LAST_CONFIGS=(--config "$CONFIGS/eval.yaml")
         ;;
 esac
@@ -43,14 +56,17 @@ if [ -n "$TRAINER_GPUS" ]; then
     GPU_ARGS=("trainer.placement.policy_num_gpus_per_node=$TRAINER_GPUS")
 fi
 
-start_retriever
+if [ "$ENCODER" != shell ]; then
+    start_retriever
+    ENV_ARGS=("environment.skyrl_gym.phantom_search.search_url=$SEARCH_URL")
+fi
 
 # Ray's head port stays below the kernel's ephemeral range (32768+)
 start_ray 20000 32767 uv run --no-sync ray
 uv run --no-sync python "scripts/skyrl/$MODE.py" \
     --config "$CONFIGS/base.yaml" \
+    "${ENV_ARGS[@]}" \
     "${DATA_ARGS[@]}" \
-    "environment.skyrl_gym.phantom_search.search_url=$SEARCH_URL" \
     "${GPU_ARGS[@]}" \
     "${TRAINER_ARGS[@]}" \
     "${LAST_CONFIGS[@]}"

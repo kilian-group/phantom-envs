@@ -41,9 +41,11 @@ dependencies = [
 # SkyRL training and evaluation (Megatron backend with vLLM), with everything around it: the retrieval
 # server and index builder (FAISS comes from `uv run --with faiss-cpu==1.12.0`, or conda's faiss-gpu
 # for Search-R1's 21M-document index), the benchmark builders (FRAMES fetches Wikipedia wikitext at a
-# pinned revision) and reproduce_paper/ (lm-eval for the paper's MMLU eval)
+# pinned revision), reproduce_paper/ (lm-eval for the paper's MMLU eval) and the shell env's ShellSim
+# sandbox
 skyrl = [
     "skyrl[megatron]",
+    "shellsim",
     "wandb",
     "transformers",
     "safetensors",
