@@ -62,13 +62,18 @@ def resolve_model_path(cfg: PhantomTrainConfig) -> None:
 
 
 def compute_total_training_steps(cfg: PhantomTrainConfig) -> int:
-    """Total training steps, as SkyRL's train dataloader counts them (``drop_last=True``).
+    """Total training steps, as SkyRL's train dataloader counts them (``drop_last=True``), capped at
+    ``trainer.max_training_steps``.
 
     Reads parquet metadata only. SkyRL also drops prompts longer than ``max_prompt_length``, so
     the true count can be slightly lower; that is fine for sizing checkpoint cadences.
     """
     total_rows = sum(pq.read_metadata(p).num_rows for p in cfg.data.train_data)
-    return (total_rows // cfg.trainer.train_batch_size) * cfg.trainer.epochs
+    total_steps = (total_rows // cfg.trainer.train_batch_size) * cfg.trainer.epochs
+    if cfg.trainer.max_training_steps is not None:
+        # Megatron's LR scheduler asserts that the warmup is shorter than the run
+        total_steps = min(total_steps, cfg.trainer.max_training_steps)
+    return total_steps
 
 
 def set_auto_intervals(cfg: PhantomTrainConfig, yaml_cfg: DictConfig, cli_cfg: DictConfig) -> None:

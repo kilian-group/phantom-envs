@@ -1,5 +1,6 @@
 # Phi-4-mini-instruct: its recommended sampling (temperature 0.8, top_p 0.95).
-# Loads remote code that needs the LossKwargs shim in phantom_envs.integrations.skyrl.
+# For evals only: Megatron can't train it (Megatron-Bridge has no Phi-3 converter). The paper's Phi runs
+# trained with FSDP, at the repo's `paper` tag.
 trainer:
   policy:
     model:

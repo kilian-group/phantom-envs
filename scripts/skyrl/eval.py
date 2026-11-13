@@ -30,7 +30,7 @@ Usage (the model yaml carries the model family's sampling params):
         trainer.policy.model.path=/path/to/<run>/exports/global_step_160/policy \
         data.val_data=[data/hp500/validation.parquet]
 
-To evaluate an FSDP-only checkpoint (no HF export), run scripts/skyrl/train.py with
+To evaluate a checkpoint without an HF export, run scripts/skyrl/train.py with
 ``trainer.epochs=0 trainer.eval_before_train=true trainer.resume_mode=latest
 trainer.ckpt_interval=-1 trainer.hf_save_interval=-1`` instead.
 """

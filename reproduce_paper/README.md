@@ -5,6 +5,10 @@ This guide rebuilds the datasets, training runs, evaluations, tables and figures
 assumes the [installation](../README.md#installation) with the `skyrl` extra, SWI-Prolog, and a `.env`
 with your W&B settings and run directory. Run every command from the repo root.
 
+The paper's experiments trained with SkyRL's FSDP backend: for their library versions and experiments,
+use the repo's [`paper`](https://github.com/kilian-group/phantom-envs/tree/paper) tag
+(`git checkout paper`) and follow its copy of this guide.
+
 [`final_ckpts.yaml`](final_ckpts.yaml) lists the checkpoints behind the paper's results: for each model
 and training environment, the training run of each seed and the step we evaluate. Its paths point at our
 runs; replace them with your own as you train.

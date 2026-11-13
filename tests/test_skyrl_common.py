@@ -12,7 +12,7 @@ import pandas as pd  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "skyrl"))
 
-from common import env_name, get_run_name, load_config  # noqa: E402
+from common import compute_total_training_steps, env_name, get_run_name, load_config  # noqa: E402
 
 from phantom_envs.runs import compact_model_slug, slugify_path  # noqa: E402
 
@@ -71,3 +71,19 @@ class TestEnvName:
         path = tmp_path / "train.parquet"
         pd.DataFrame({"data_source": ["searchR1_nq"]}).to_parquet(path)
         assert env_name(str(path)) == "searchr1"
+
+
+class TestTotalTrainingSteps:
+    def make(self, tmp_path, *overrides: str):
+        path = tmp_path / "train.parquet"
+        pd.DataFrame({"data_source": ["pw"] * 1000}).to_parquet(path)
+        cfg, _, _ = load_config([str(CONFIG)], [f"data.train_data=[{path}]", *overrides])
+        return cfg
+
+    def test_full_batches_per_epoch(self, tmp_path):
+        cfg = self.make(tmp_path, "trainer.train_batch_size=256", "trainer.epochs=2")
+        assert compute_total_training_steps(cfg) == 6
+
+    def test_capped_at_max_training_steps(self, tmp_path):
+        cfg = self.make(tmp_path, "trainer.train_batch_size=256", "trainer.max_training_steps=2")
+        assert compute_total_training_steps(cfg) == 2

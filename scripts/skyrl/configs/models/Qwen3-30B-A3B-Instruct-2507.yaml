@@ -1,0 +1,32 @@
+# Qwen3-30B-A3B-Instruct-2507 (MoE: 128 experts, ~3B active) on one 8xH100 node. Set up like SkyRL's
+# single-node 30B-class recipes (examples/train/megatron/run_megatron_qwen3.5_35b_a3b.sh). Steps take
+# 7-13 min, so the pw preset's 193 steps take ~40 h. examples/train_pw_qwen3-30b.sh runs it end to end.
+#
+# Gotcha: Adam has to run on the CPU (~800 GB of host RAM). With its state on the GPUs, vLLM can't
+# wake its KV cache after the weight sync (OOM), whatever the engine layout.
+trainer:
+  policy:
+    model:
+      path: Qwen/Qwen3-30B-A3B-Instruct-2507
+    megatron_config:
+      tensor_model_parallel_size: 2
+      pipeline_model_parallel_size: 1
+      context_parallel_size: 1
+      expert_model_parallel_size: 8
+      expert_tensor_parallel_size: 1
+      optimizer_config_kwargs:
+        # fp32 master weights and Adam state on the CPU, with overlapped copies
+        optimizer_cpu_offload: true
+        optimizer_offload_fraction: 1.0
+        overlap_cpu_optimizer_d2h_h2d: true
+        use_precision_aware_optimizer: true
+  # Micro-batches by token budget, not by sequence count
+  max_tokens_per_microbatch: 8192
+  # bf16 HF exports only (~60 GB each), so runs can't resume
+  ckpt_interval: -1
+
+generator:
+  inference_engine:
+    num_engines: 2
+    tensor_parallel_size: 4
+    gpu_memory_utilization: 0.65
