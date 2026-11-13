@@ -1,4 +1,5 @@
-# Base SkyRL config: GRPO on PhantomWiki (Hops) with Qwen2.5-3B-Instruct on a 2xB200 node.
+# Base SkyRL config: GRPO on PhantomWiki (Hops) with Qwen2.5-3B-Instruct on a 2xB200 node, with SkyRL's
+# Megatron backend.
 #
 # Stack more yamls on top with repeated --config, in this order (later files win):
 #   models/<model>.yaml   model path, sampling params, vLLM memory share (Qwen2.5-3B-Instruct is this file)
@@ -22,7 +23,7 @@ data:
 # Trainer
 # ---------------------------------------------------------------------------
 trainer:
-  strategy: fsdp2
+  strategy: megatron
   seed: 1
 
   # Model
@@ -33,12 +34,6 @@ trainer:
       lr: 1.0e-6
       max_grad_norm: 1.0  # default in transformers Trainer
       # num_warmup_steps: 0  # automatically set to 10% of total training steps in scripts/skyrl/train.py
-    fsdp_config:
-      cpu_offload: false
-
-  ref:
-    fsdp_config:
-      cpu_offload: true
 
   # GRPO algorithm
   algorithm:
@@ -68,7 +63,7 @@ trainer:
   # for scripts/skyrl/eval.py to load HF-format weights.
   max_ckpts_to_keep: 1
   resume_mode: latest
-  bf16: true  # NOTE: no effect on policy model since that is trained with fp32
+  bf16: true  # bf16 weights; the optimizer keeps fp32 master weights
 
   # Evaluation
   # eval_interval is also auto-set to 10% of total training steps.

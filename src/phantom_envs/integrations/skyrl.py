@@ -3,9 +3,8 @@
 The episode logic lives in :mod:`phantom_envs.protocol` and the HTTP calls in
 :mod:`phantom_envs.retriever.client`; this module adapts them to SkyRL-Gym's ``BaseTextEnv``.
 
-Ray workers import this module when they unpickle :class:`PhantomTrainConfig` (the entrypoint)
-or :class:`PhantomTrainerConfig` (policy / ref workers), so everything they need is here: the
-env, its config, and the Phi-4 compatibility shim.
+Ray workers import this module when they unpickle :class:`PhantomTrainConfig` (the entrypoint),
+so everything they need is here: the env and its config.
 
 Usage (inside the Ray remote entrypoint)::
 
@@ -17,8 +16,7 @@ Usage (inside the Ray remote entrypoint)::
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-import transformers.utils
-from skyrl.train.config import SkyRLTrainConfig, TrainerConfig
+from skyrl.train.config import SkyRLTrainConfig
 from skyrl.train.config.config import EnvironmentConfig, SkyRLGymConfig
 from skyrl_gym.envs.base_text_env import BaseTextEnv, BaseTextEnvStepOutput
 from skyrl_gym.envs.registration import register as skyrl_gym_register
@@ -30,22 +28,6 @@ from phantom_envs.retriever.client import SearchClient
 from phantom_envs.scoring import METRICS
 
 ENV_ID = "phantom_search"
-
-# Compat shim for Phi-4-mini-instruct: its bundled modeling_phi3.py (loaded via
-# trust_remote_code=True) imports `LossKwargs` from transformers.utils, which
-# was removed after transformers 4.49. SkyRL pins transformers>=4.56, so we
-# re-expose the symbol here. No-op for models that don't use remote code (e.g.
-# Qwen2.5, which uses the native Qwen2ForCausalLM).
-if not hasattr(transformers.utils, "LossKwargs"):
-    try:
-        from transformers.utils import TransformersKwargs as LossKwargs
-    except ImportError:
-        from typing import TypedDict
-
-        class LossKwargs(TypedDict, total=False):
-            num_items_in_batch: int
-
-    transformers.utils.LossKwargs = LossKwargs
 
 
 @dataclass
@@ -76,16 +58,9 @@ class PhantomEnvironmentConfig(EnvironmentConfig):
 
 
 @dataclass
-class PhantomTrainerConfig(TrainerConfig):
-    """Stock TrainerConfig, subclassed only so that the policy / ref workers, which receive
-    ``cfg.trainer``, import this module (and apply the Phi-4 shim) when they unpickle it."""
-
-
-@dataclass
 class PhantomTrainConfig(SkyRLTrainConfig):
     """SkyRLTrainConfig whose environment section accepts ``phantom_search``."""
 
-    trainer: PhantomTrainerConfig = field(default_factory=PhantomTrainerConfig)
     environment: PhantomEnvironmentConfig = field(default_factory=PhantomEnvironmentConfig)
 
 

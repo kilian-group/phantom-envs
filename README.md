@@ -17,6 +17,12 @@ questions whose answers are computed by Prolog. The agent searches the articles 
 `<search>query</search>`, reads the `<information>` that comes back, and ends with
 `<answer>...</answer>`, rewarded on the final answer.
 
+## New
+
+- **Nov 2026:** Move to SkyRL Megatron backend support.
+  [Train Qwen3-30B-A3B MoE on PhantomWiki](examples/train_pw_qwen3-30b.sh) to improve agentic search
+  F1 score from 46% to 56%. On an 8xH100 node, training took 40 hours.
+
 ## Installation
 
 ```bash
@@ -96,9 +102,10 @@ uv run python scripts/skyrl/prepare_data.py --data_dir data/envs/pw   # tasks ->
 bash scripts/skyrl/launch_skyrl.sh train e5 data/envs/pw
 ```
 
-The launcher starts the retrieval server, then trains with [SkyRL](https://github.com/novasky-ai/SkyRL)
-on every GPU in `CUDA_VISIBLE_DEVICES` (default: all); checkpoints go under `$RUN_BASE_DIR`. The
-default config trains Qwen2.5-3B-Instruct and is tuned for 2 B200s (`scripts/skyrl/configs/base.yaml`).
+The launcher starts the retrieval server, then trains with the Megatron backend of
+[SkyRL](https://github.com/novasky-ai/SkyRL) on every GPU in `CUDA_VISIBLE_DEVICES` (default: all);
+checkpoints go under `$RUN_BASE_DIR`. The default config trains Qwen2.5-3B-Instruct and is tuned for 2
+B200s (`scripts/skyrl/configs/base.yaml`).
 Model configs in `scripts/skyrl/configs/models/` and overrides stack on top:
 
 ```bash
@@ -137,13 +144,16 @@ scripts/skyrl/                 the SkyRL launcher, entrypoints, configs and data
 scripts/benchmarks/            real-world benchmarks as data dirs
 scripts/score_trajectories.py  EM / F1 of dumped eval trajectories
 scripts/clusters/              running on Cornell's unicorn cluster
+examples/                      end-to-end scripts: data, training and evals in one go
 reproduce_paper/               the paper's data, runs, evals, tables and figures
 ```
 
 ## Reproducing the paper
 
 [reproduce_paper/README.md](reproduce_paper/README.md) rebuilds the paper's datasets, training runs,
-evaluations, tables and figures.
+evaluations, tables and figures. The paper's experiments trained with SkyRL's FSDP backend: for their
+library versions and experiments, use the repo's
+[`paper`](https://github.com/kilian-group/phantom-envs/tree/paper) tag (`git checkout paper`).
 
 ## Citation
 
