@@ -1,7 +1,7 @@
-"""Tests for phantom_envs.protocol: turn parsing, episode termination and the terminal reward."""
+"""Tests for phantom_envs.search.protocol: turn parsing, episode termination and the terminal reward."""
 
-from phantom_envs.prompts import USER_PROMPT_PREFIX
-from phantom_envs.protocol import (
+from phantom_envs.search.prompts import USER_PROMPT_PREFIX
+from phantom_envs.search.protocol import (
     EpisodeState,
     SearchProtocol,
     count_searches,

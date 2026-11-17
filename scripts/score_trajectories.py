@@ -29,8 +29,8 @@ from pathlib import Path
 import pandas as pd
 from tabulate import tabulate
 
-from phantom_envs.protocol import count_searches, extract_answer
 from phantom_envs.scoring import METRICS, get_scorer, mean_stderr
+from phantom_envs.search.protocol import count_searches, extract_answer
 
 SUPPORTED_DATA_SOURCES = [
     "hp500",

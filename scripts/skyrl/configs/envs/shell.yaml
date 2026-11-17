@@ -1,4 +1,4 @@
-# The phantom_shell env (phantom_envs.shell): a coding agent answers with a bash tool in a ShellSim
+# The phantom_shell env (phantom_envs.terminal): a coding agent answers with a bash tool in a ShellSim
 # sandbox that holds the data dir's corpus as files. launch_skyrl.sh stacks this file right after
 # base.yaml for `<train|eval> shell <data_dir>` and sets corpus_path.
 #
@@ -13,7 +13,7 @@ generator:
     max_generate_length: 2048
     stop: null
   chat_template_kwargs:
-    # phantom_envs.shell runs calls to this tool: name bash, parameter command
+    # phantom_envs.terminal.loop runs calls to this tool: name bash, parameter command
     tools:
       - type: function
         function:

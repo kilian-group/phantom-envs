@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "skyrl"
 from prepare_data import skyrl_row  # noqa: E402
 
 from phantom_envs._types import Task  # noqa: E402
-from phantom_envs.prompts import build_messages  # noqa: E402
+from phantom_envs.search.prompts import build_messages  # noqa: E402
 
 PW_TASK = Task(
     id="q_001",

@@ -40,9 +40,9 @@ from pathlib import Path
 import pyarrow.parquet as pq
 from vllm import LLM, SamplingParams
 
-from phantom_envs.protocol import extract_answer
 from phantom_envs.runs import compact_model_slug
 from phantom_envs.scoring import SearchR1Scorer, mean_stderr
+from phantom_envs.search.protocol import extract_answer
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)

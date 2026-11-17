@@ -18,13 +18,14 @@ from pathlib import Path
 import pandas as pd
 
 from phantom_envs._types import Task
-from phantom_envs.prompts import build_messages, build_shell_messages
+from phantom_envs.search import prompts as search_prompts
 from phantom_envs.tasks import SPLITS, load_tasks, task_path
+from phantom_envs.terminal import task as shell_task
 
 # Per env: the env class, its opening messages, and the parquet dir under the data dir
 ENVS = {
-    "search": ("phantom_search", build_messages, ""),
-    "shell": ("phantom_shell", build_shell_messages, "shell"),
+    "search": ("phantom_search", search_prompts.build_messages, ""),
+    "shell": ("phantom_shell", shell_task.build_messages, "shell"),
 }
 
 # The parquet's ``ability`` column per data source (informational; nothing reads it)

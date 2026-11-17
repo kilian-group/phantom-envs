@@ -29,7 +29,8 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 import phantom_envs.scoring
-from phantom_envs.shell import ANSWER_PATH, corpus_files
+from phantom_envs.terminal.corpus_files import corpus_files
+from phantom_envs.terminal.task import ANSWER_PATH
 
 IMAGE = "phantom-envs-shell-task"
 
