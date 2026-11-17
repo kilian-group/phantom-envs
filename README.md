@@ -190,6 +190,7 @@ src/phantom_envs/              environment generation, the search protocol and r
 scripts/skyrl/                 the SkyRL launcher, entrypoints, configs and data prep
 scripts/benchmarks/            real-world benchmarks as data dirs
 scripts/score_trajectories.py  EM / F1 of dumped eval trajectories
+scripts/eval_api.py            the coding-agent eval for API models, e.g. on OpenRouter
 scripts/clusters/              running on Cornell's unicorn cluster
 examples/                      end-to-end scripts: data, training and evals in one go
 reproduce_paper/               the paper's data, runs, evals, tables and figures

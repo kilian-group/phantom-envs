@@ -112,8 +112,11 @@ class ShellProtocol:
 
     def act(self, state: ShellEpisodeState, turn: str) -> ShellTurnResult:
         """Record an agent turn and decide what happens next."""
+        return self.act_on_calls(state, parse_tool_calls(turn))
+
+    def act_on_calls(self, state: ShellEpisodeState, calls: list[ToolCall]) -> ShellTurnResult:
+        """Like :meth:`act`, for a turn whose tool calls come parsed (an API's native tool calls)."""
         state.turns += 1
-        calls = parse_tool_calls(turn)
         if not calls or state.turns >= self.max_turns:
             return ShellTurnResult(done=True)
         state.commands += len(calls)
