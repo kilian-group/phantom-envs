@@ -191,6 +191,7 @@ scripts/skyrl/                 the SkyRL launcher, entrypoints, configs and data
 scripts/benchmarks/            real-world benchmarks as data dirs
 scripts/score_trajectories.py  EM / F1 of dumped eval trajectories
 scripts/eval_api.py            the coding-agent eval for API models, e.g. on OpenRouter
+scripts/harbor/                the questions as Harbor tasks, for coding agents like qwen-code in Docker
 scripts/clusters/              running on Cornell's unicorn cluster
 examples/                      end-to-end scripts: data, training and evals in one go
 reproduce_paper/               the paper's data, runs, evals, tables and figures

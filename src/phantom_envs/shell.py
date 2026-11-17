@@ -30,6 +30,7 @@ Trainer adapters drive :class:`ShellProtocol` and run the commands in a :class:`
 import json
 import re
 import threading
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -181,16 +182,21 @@ def build_corpus_image(corpus_path: str | Path) -> CorpusImage:
     )
     builder.mkdir(CORPUS_DIR)
     builder.mkdir(WORK_DIR)
-    taken: set[str] = set()
     num_docs = num_bytes = 0
+    for name, text in corpus_files(corpus_path):
+        builder.write_file(f"{CORPUS_DIR}/{name}", text)
+        num_docs += 1
+        num_bytes += len(text.encode())
+    return CorpusImage(native=builder._native.freeze(), num_docs=num_docs, num_bytes=num_bytes)
+
+
+def corpus_files(corpus_path: str | Path) -> Iterator[tuple[str, str]]:
+    """Yield ``(file name, contents)`` for each document of ``corpus.jsonl``, as the sandbox holds them."""
+    taken: set[str] = set()
     with open(corpus_path) as f:
         for line in f:
             doc = json.loads(line)
-            text = doc_text(doc["title"], doc["contents"])
-            builder.write_file(f"{CORPUS_DIR}/{doc_filename(doc['title'], taken)}", text)
-            num_docs += 1
-            num_bytes += len(text.encode())
-    return CorpusImage(native=builder._native.freeze(), num_docs=num_docs, num_bytes=num_bytes)
+            yield doc_filename(doc["title"], taken), doc_text(doc["title"], doc["contents"])
 
 
 _images: dict[str, CorpusImage] = {}
