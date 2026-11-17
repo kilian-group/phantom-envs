@@ -1,8 +1,12 @@
-"""The ``phantom_shell`` SkyRL-Gym environment: a coding agent with bash in a sandbox over the corpus.
+"""The ``phantom_shell`` SkyRL-Gym environment without a harness: a coding agent with a terminal (a
+bash tool) in a sandbox over the corpus.
 
 SkyRL's generator samples the agent's turns; :class:`~phantom_envs.terminal.loop.ShellProtocol` decides
 when the attempt ends, a sandbox runs the commands, and :func:`~phantom_envs.terminal.task.verify`
 scores the answer file.
+
+With a harness (``harness: pi``), the harness runs the turns instead, and
+:mod:`phantom_envs.integrations.skyrl.harness` replaces both SkyRL's generator and this env.
 """
 
 from dataclasses import dataclass, field
@@ -15,10 +19,17 @@ from phantom_envs.terminal.loop import ShellEpisodeState, ShellProtocol, tool_er
 from phantom_envs.terminal.sandbox import BACKENDS, Sandbox, open_sandbox
 from phantom_envs.terminal.task import has_answer, verify
 
+# Who runs the agent's loop: SkyRL's generator (none), or a coding agent inside the sandbox
+HARNESSES: tuple[str, ...] = ("none", "pi")
+
 
 @dataclass
 class PhantomShellEnvConfig:
-    """Config of the phantom_shell env: its sandboxes, the corpus they serve, and its limits and reward."""
+    """Config of the phantom_shell env: its sandboxes, the corpus they serve, and its limits and reward.
+
+    Harness runs (``harness: pi``) read the same config, in
+    :class:`~phantom_envs.integrations.skyrl.harness.HarnessGenerator`.
+    """
 
     sandbox: Literal[BACKENDS] = field(
         default="shellsim",
@@ -27,6 +38,25 @@ class PhantomShellEnvConfig:
     rootfs: str = field(
         default="",
         metadata={"help": "Root filesystem of the bwrap sandbox (the launcher sets it from SANDBOX_ROOTFS)"},
+    )
+    harness: Literal[HARNESSES] = field(
+        default="none",
+        metadata={
+            "help": "Who runs the agent's loop: none (SkyRL's generator) or pi, a coding agent (needs bwrap)"
+        },
+    )
+    system_prompt: str = field(
+        default="", metadata={"help": "Replaces the harness's own system prompt; empty keeps it"}
+    )
+    chat_format_model: str = field(
+        default="",
+        metadata={
+            "help": "Base model whose chat format a harness run renders, e.g. Qwen/Qwen3.5-9B. Needed when "
+            "trainer.policy.model.path is a checkpoint dir, which names no chat format; empty: the model path"
+        },
+    )
+    episode_timeout: float = field(
+        default=1800.0, metadata={"help": "Wall-clock limit of a whole episode with a harness, in seconds"}
     )
     corpus_path: str = field(
         default="",

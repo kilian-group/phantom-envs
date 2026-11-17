@@ -13,11 +13,17 @@ Modules:
 - :mod:`phantom_envs.terminal.task`: the sandbox paths, the instruction and the verifier. Everything
   else builds on these.
 - :mod:`phantom_envs.terminal.corpus_files`: how a corpus becomes files.
-- :mod:`phantom_envs.terminal.sandbox`: the sandbox interface and :func:`~phantom_envs.terminal.sandbox.open_sandbox`,
-  with two backends: :mod:`~phantom_envs.terminal.shellsim` (an in-process simulated bash) and
+- :mod:`phantom_envs.terminal.sandbox`: the sandbox interface, with two backends:
+  :mod:`~phantom_envs.terminal.shellsim` (an in-process simulated bash) and
   :mod:`~phantom_envs.terminal.bwrap` (real processes in a bubblewrap sandbox).
+
+Two ways to run the agent's loop:
+
 - :mod:`phantom_envs.terminal.loop`: the bare tool loop, for trainers that sample the agent's turns
   themselves: tool-call parsing, when the attempt ends, and the tool responses.
+- :mod:`phantom_envs.terminal.harness`: a coding agent that runs its own loop inside the bwrap sandbox
+  and calls the model over an OpenAI-compatible endpoint. :mod:`~phantom_envs.terminal.pi` is the one
+  harness so far.
 
 Nothing is imported here, so a module's optional dependencies load only when it is used.
 """

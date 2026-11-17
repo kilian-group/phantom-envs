@@ -1,8 +1,7 @@
 #!/usr/bin/env -S uv run python
 """Train a search agent with SkyRL (GRPO, Megatron backend) on a PhantomEnvs or benchmark dataset.
 
-Loads a yaml config, merges dot-notation CLI overrides on top, and runs SkyRL's stock
-``BasePPOExp``. The run name, checkpoint path and export path are derived from the config:
+Loads a yaml config, merges dot-notation CLI overrides on top, and runs SkyRL's ``BasePPOExp``. The run name, checkpoint path and export path are derived from the config:
 
     $RUN_BASE_DIR/<run_dir>/<env>/<model>/<estimator>/<user>/<MM-DD>__r=<reward>__max_t=<turns>__s=<seed>
 
@@ -47,11 +46,15 @@ from skyrl.train.utils.utils import initialize_ray
 
 @ray.remote(num_cpus=1)
 def train_entrypoint(cfg: SkyRLTrainConfig) -> None:
-    """Ray task that registers the env and runs SkyRL's stock PPO experiment."""
+    """Ray task that registers the envs and runs SkyRL's PPO experiment."""
     from phantom_envs.integrations.skyrl import register
+    from phantom_envs.integrations.skyrl.harness import HarnessGeneratorMixin
+
+    class Experiment(HarnessGeneratorMixin, BasePPOExp):
+        """SkyRL's PPO experiment; shell runs with a harness get the harness generator."""
 
     register()
-    BasePPOExp(cfg).run()
+    Experiment(cfg).run()
 
 
 def main(args: argparse.Namespace) -> None:

@@ -31,3 +31,9 @@ generator:
       gdn_prefill_backend: triton
   chat_template_kwargs:
     enable_thinking: false
+
+environment:
+  skyrl_gym:
+    phantom_shell:
+      # For harness runs (harness: pi) on a checkpoint dir: the base model names the chat format
+      chat_format_model: Qwen/Qwen3.5-9B

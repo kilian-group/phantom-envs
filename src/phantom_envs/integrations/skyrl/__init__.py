@@ -5,7 +5,10 @@ The episode logic lives in :mod:`phantom_envs.search` and :mod:`phantom_envs.ter
 adapt it to SkyRL:
 
 - :mod:`phantom_envs.integrations.skyrl.search`: ``phantom_search``, an agent with a retriever.
-- :mod:`phantom_envs.integrations.skyrl.shell`: ``phantom_shell``, an agent with bash in a sandbox.
+- :mod:`phantom_envs.integrations.skyrl.terminal`: ``phantom_shell``, an agent with a terminal (a bash tool)
+  in a sandbox; SkyRL's generator samples each turn and the env runs its commands.
+- :mod:`phantom_envs.integrations.skyrl.harness`: shell episodes run by a coding-agent harness such
+  as pi, as a SkyRL generator.
 
 Ray workers import this package when they unpickle :class:`PhantomTrainConfig` (the entrypoint's
 argument), so the config of every env is composed here.
@@ -25,7 +28,7 @@ from skyrl_gym.envs.registration import register as skyrl_gym_register
 from skyrl_gym.envs.registration import registry
 
 from phantom_envs.integrations.skyrl.search import PhantomSearchEnv, PhantomSearchEnvConfig
-from phantom_envs.integrations.skyrl.shell import PhantomShellEnv, PhantomShellEnvConfig
+from phantom_envs.integrations.skyrl.terminal import PhantomShellEnv, PhantomShellEnvConfig
 
 SEARCH_ENV_ID: str = "phantom_search"
 SHELL_ENV_ID: str = "phantom_shell"
