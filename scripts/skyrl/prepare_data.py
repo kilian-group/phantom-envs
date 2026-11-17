@@ -4,10 +4,12 @@
 Works for every data dir: PhantomEnvs environments (``phantom_envs generate`` or
 reproduce_paper/scripts/generate_paper_data.py) and the benchmarks (``scripts/benchmarks/``). Each task
 becomes one row in the SkyRL-Gym conversation format, run by the ``phantom_search`` env
-(``phantom_envs.integrations.skyrl``).
+(``phantom_envs.integrations.skyrl``). With ``--env shell``, rows go to ``shell/<split>.parquet``
+instead, for the ``phantom_shell`` env (a coding agent with bash over the corpus files).
 
 Usage:
     uv run python scripts/skyrl/prepare_data.py --data_dir data/pw/depth_16_size_1000_seed_1_50k
+    uv run python scripts/skyrl/prepare_data.py --data_dir data/hp500 --env shell
 """
 
 import argparse
@@ -16,8 +18,14 @@ from pathlib import Path
 import pandas as pd
 
 from phantom_envs._types import Task
-from phantom_envs.prompts import build_messages
+from phantom_envs.prompts import build_messages, build_shell_messages
 from phantom_envs.tasks import SPLITS, load_tasks, task_path
+
+# Per env: the env class, its opening messages, and the parquet dir under the data dir
+ENVS = {
+    "search": ("phantom_search", build_messages, ""),
+    "shell": ("phantom_shell", build_shell_messages, "shell"),
+}
 
 # The parquet's ``ability`` column per data source (informational; nothing reads it)
 ABILITIES = {
@@ -83,17 +91,19 @@ def row_metadata(task: Task) -> dict | None:
     return task.metadata or None
 
 
-def skyrl_row(task: Task, split: str, idx: int) -> dict:
+def skyrl_row(task: Task, split: str, idx: int, env: str = "search") -> dict:
     """One SkyRL-Gym parquet row.
 
     Args:
         task: The task.
         split: ``train`` or ``validation``.
         idx: The task's position in its split.
+        env: ``search`` or ``shell`` (a key of ENVS).
 
     Returns:
         The row: data_source, prompt, ability, env_class, reward_spec, extra_info and metadata.
     """
+    env_class, build_prompt, _ = ENVS[env]
     ground_truth = {"target": task.answers}
     reward_spec = {"ground_truth": ground_truth}
     if task.data_source.startswith(SEARCHR1_PREFIX):
@@ -110,9 +120,9 @@ def skyrl_row(task: Task, split: str, idx: int) -> dict:
     }
     return {
         "data_source": task.data_source,
-        "prompt": build_messages(task.question),
+        "prompt": build_prompt(task.question),
         "ability": ability(task),
-        "env_class": "phantom_search",
+        "env_class": env_class,
         "reward_spec": reward_spec,
         "extra_info": extra_info,
         "metadata": row_metadata(task),
@@ -121,11 +131,13 @@ def skyrl_row(task: Task, split: str, idx: int) -> dict:
 
 def main(args: argparse.Namespace) -> None:
     """Write one parquet per split that has tasks."""
+    out_dir = Path(args.data_dir) / ENVS[args.env][2]
+    out_dir.mkdir(exist_ok=True)
     for split in SPLITS:
         if not task_path(args.data_dir, split).exists():
             continue
-        rows = [skyrl_row(t, split, i) for i, t in enumerate(load_tasks(args.data_dir, split))]
-        path = Path(args.data_dir) / f"{split}.parquet"
+        rows = [skyrl_row(t, split, i, args.env) for i, t in enumerate(load_tasks(args.data_dir, split))]
+        path = out_dir / f"{split}.parquet"
         pd.DataFrame(rows).to_parquet(path, index=False)
         print(f"Wrote {len(rows)} rows to {path}")
 
@@ -133,5 +145,11 @@ def main(args: argparse.Namespace) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Write SkyRL parquets for a data dir's tasks.")
     parser.add_argument("--data_dir", required=True, help="Data dir with tasks/<split>.jsonl.")
+    parser.add_argument(
+        "--env",
+        choices=list(ENVS),
+        default="search",
+        help="search: <split>.parquet for phantom_search; shell: shell/<split>.parquet for phantom_shell.",
+    )
     args = parser.parse_args()
     main(args)

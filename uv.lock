@@ -3985,6 +3985,7 @@ skyrl = [
     { name = "pyyaml" },
     { name = "safetensors" },
     { name = "sentence-transformers" },
+    { name = "shellsim" },
     { name = "skyrl" },
     { name = "skyrl", extra = ["megatron"], marker = "(extra == 'extra-5-skyrl-fsdp' and extra == 'extra-5-skyrl-jax') or (extra != 'extra-5-skyrl-jax' and extra == 'extra-5-skyrl-megatron') or (extra != 'extra-5-skyrl-fsdp' and extra == 'extra-5-skyrl-megatron')" },
     { name = "tabulate" },
@@ -4017,6 +4018,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'" },
     { name = "safetensors", marker = "extra == 'skyrl'" },
     { name = "sentence-transformers", marker = "extra == 'skyrl'" },
+    { name = "shellsim", marker = "extra == 'skyrl'" },
     { name = "skyrl", extras = ["megatron"], marker = "extra == 'skyrl'", git = "https://github.com/novasky-ai/SkyRL?rev=dd8769f" },
     { name = "tabulate", marker = "extra == 'skyrl'" },
     { name = "tqdm" },
@@ -5116,6 +5118,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/58/15/8b3609fd3830ef7b27b655beb4b4e9c62313a4e8da8c676e142cc210d58e/shellingham-1.5.4.tar.gz", hash = "sha256:8dbca0739d487e5bd35ab3ca4b36e11c4078f3a234bfce294b0a0291363404de", size = 10310, upload-time = "2023-10-24T04:13:40.426Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e0/f9/0595336914c5619e5f28a1fb793285925a8cd4b432c9da0a987836c7f822/shellingham-1.5.4-py2.py3-none-any.whl", hash = "sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686", size = 9755, upload-time = "2023-10-24T04:13:38.866Z" },
+]
+
+[[package]]
+name = "shellsim"
+version = "0.1.39"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/63/6e/ea456ac8f4f365417443d552c5a4ab031377bb938589ed84e6076051d5a5/shellsim-0.1.39.tar.gz", hash = "sha256:ab03e3f16ed84381c2f509ca355443333b2772519eccc1af6e83eebca5967db6", size = 1769340, upload-time = "2026-10-23T18:37:54.875Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/47/40/3859e249b97fa25446e3f0d6562787099c024ec90018f1c5422c309c69e1/shellsim-0.1.39-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:6c6e374423152ad9704ce9cf1258cc8c25a4cfec26b4f1f921525b1ea82c15d9", size = 4396382, upload-time = "2026-10-23T18:37:49.372Z" },
+    { url = "https://files.pythonhosted.org/packages/92/5b/48f9b934bc056a453e4d13b42bde63dfa2e5163493fafd216b0fa7504f76/shellsim-0.1.39-cp39-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:e545b196dcdadffc01233ab01d0408f5c49bb0bcd4e78e8996a92b44d98991a1", size = 4881381, upload-time = "2026-10-23T18:37:51.202Z" },
+    { url = "https://files.pythonhosted.org/packages/97/56/de6f127cb4391157c868d27aedda0f35e7d456fe8662a6992bf462de784e/shellsim-0.1.39-cp39-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:01bbceab338ce18aeedaf18efdcad73b948b044e146db2b909c2e89321d0748b", size = 5191200, upload-time = "2026-10-23T18:37:52.808Z" },
 ]
 
 [[package]]

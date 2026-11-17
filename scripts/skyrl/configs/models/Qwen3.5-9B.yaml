@@ -1,0 +1,33 @@
+trainer:
+  policy:
+    model:
+      path: Qwen/Qwen3.5-9B
+    language_model_only: true
+    megatron_config:
+      tensor_model_parallel_size: 4
+      pipeline_model_parallel_size: 1
+  ref:
+    language_model_only: true
+  # Micro-batches by token budget, not by sequence count
+  max_tokens_per_microbatch: 16384
+  # No activation recompute (SkyRL defaults to full): policy updates are 21% faster, and 16K-token
+  # micro-batches still fit at TP4
+  gradient_checkpointing: false
+  algorithm:
+    # Weight tokens by the trainer/vLLM probability ratio (zero outside [0.8, 1.2]), with no separate
+    # old-logprob pass (65 s per step saved)
+    policy_loss_type: rollout_is
+    off_policy_correction:
+      tis_ratio_type: null
+
+generator:
+  inference_engine:
+    language_model_only: true
+    distributed_executor_backend: mp
+    num_engines: 4
+    tensor_parallel_size: 2
+    gpu_memory_utilization: 0.8
+    engine_init_kwargs:
+      gdn_prefill_backend: triton
+  chat_template_kwargs:
+    enable_thinking: false

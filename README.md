@@ -15,10 +15,14 @@ trained in these worlds transfer to real-world multi-hop QA.
 Each environment is a fictional universe of people, written out as one article per person, plus
 questions whose answers are computed by Prolog. The agent searches the articles with
 `<search>query</search>`, reads the `<information>` that comes back, and ends with
-`<answer>...</answer>`, rewarded on the final answer.
+`<answer>...</answer>`, rewarded on the final answer. Or, as a coding agent, it searches the articles
+as files with bash and writes its answer to a file.
 
 ## New
 
+- **Nov 2026:** [Train Qwen3.5-9B in a coding agent harness](examples/train_shell_qwen35-9b.sh) to search
+  using bash commands, improving F1 score from 50% to 63% (Qwen4-Max: 65%). On an 8xH100 node, training
+  took 11 hours.
 - **Nov 2026:** Move to SkyRL Megatron backend support.
   [Train Qwen3-30B-A3B MoE on PhantomWiki](examples/train_pw_qwen3-30b.sh) to improve agentic search
   F1 score from 46% to 56%. On an 8xH100 node, training took 40 hours.
@@ -84,6 +88,8 @@ facts and articles), `corpus.jsonl` (the articles the agent searches) and `tasks
 
 ### 2. Build the retrieval indexes
 
+Do this step for the search agent only. The coding agent does not require building an index.
+
 ```bash
 # For training (e5-base-v2)
 uv run --with faiss-cpu==1.12.0 python -m phantom_envs.retriever.build_index \
@@ -96,6 +102,8 @@ uv run --with faiss-cpu==1.12.0 python -m phantom_envs.retriever.build_index \
 ```
 
 ### 3. Train
+
+#### Search-R1 style
 
 ```bash
 uv run python scripts/skyrl/prepare_data.py --data_dir data/envs/pw   # tasks -> SkyRL parquets
@@ -114,7 +122,31 @@ bash scripts/skyrl/launch_skyrl.sh train e5 data/envs/pw \
     trainer.seed=2
 ```
 
+#### Coding agent style
+
+Write the shell parquets and pass `shell` in place of the encoder. There is no retriever: each episode
+runs in a [ShellSim](https://pypi.org/project/shellsim/) sandbox (a simulated bash) with the corpus as
+files under `/corpus`, and the agent writes its answer to `/app/output.md`.
+[examples/train_shell_qwen35-9b.sh](examples/train_shell_qwen35-9b.sh) runs it end to end.
+
+```bash
+# Set CUDA_HOME in .env so that Qwen3.5 kernels get compiled for fast training
+uv run python scripts/skyrl/prepare_data.py --data_dir data/envs/pw --env shell
+bash scripts/skyrl/launch_skyrl.sh train shell data/envs/pw \
+    --config scripts/skyrl/configs/models/Qwen3.5-9B.yaml \
+    trainer.train_batch_size=128 \
+    trainer.policy_mini_batch_size=128 \
+    trainer.hf_save_interval=40
+```
+
+The validation F1 score is near 100% by step 150, so the coding agent saturates the training data quickly. Seeing this saturation, we picked the step 120 checkpoint.
+
 ### 4. Evaluate
+
+`scripts/benchmarks/` builds the real-world benchmarks in the same data-dir layout; see
+[reproduce_paper/README.md](reproduce_paper/README.md).
+
+#### Search-R1 style
 
 Our trained checkpoints are on Hugging Face:
 [`kilian-group/PhantomEnvs-Qwen2.5-3B-Instruct`](https://huggingface.co/kilian-group/PhantomEnvs-Qwen2.5-3B-Instruct)
@@ -128,13 +160,28 @@ uv run python scripts/score_trajectories.py --eval_dir out__eval=pw --data_sourc
 ```
 
 For your own runs, pass `trainer.policy.model.path=<run>/exports/global_step_<N>/policy`.
-`scripts/benchmarks/` builds the real-world benchmarks in the same data-dir layout; see
-[reproduce_paper/README.md](reproduce_paper/README.md).
 
 <p align="center">
   <img src="assets/f1-vs-training-steps.png" alt="F1 on real-world benchmarks over training on Hops" width="100%"/>
   <br><em>F1 on real-world multi-hop benchmarks over training on Hops.</em>
 </p>
+
+#### Coding agent style
+
+Pass `shell` here too. Evals run on all 8 GPUs (the Qwen3.5-9B config runs 4 vLLM engines with tensor
+parallelism 2):
+
+```bash
+uv run python scripts/skyrl/prepare_data.py --data_dir data/hp500 --env shell
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 bash scripts/skyrl/launch_skyrl.sh eval shell data/hp500 \
+    --config scripts/skyrl/configs/models/Qwen3.5-9B.yaml \
+    trainer.policy.model.path=<run>/exports/global_step_120/policy \
+    --out_dir=out__eval=hp500__shell
+uv run python scripts/score_trajectories.py --eval_dir out__eval=hp500__shell --data_source hp500
+```
+
+Use 16 GB memory for BrowseComp-Plus because the docs are long: add
+`environment.skyrl_gym.phantom_shell.memory_gib=16`.
 
 ## Repository layout
 
@@ -143,6 +190,8 @@ src/phantom_envs/              environment generation, the search protocol and r
 scripts/skyrl/                 the SkyRL launcher, entrypoints, configs and data prep
 scripts/benchmarks/            real-world benchmarks as data dirs
 scripts/score_trajectories.py  EM / F1 of dumped eval trajectories
+scripts/eval_api.py            the coding-agent eval for API models, e.g. on OpenRouter
+scripts/harbor/                the questions as Harbor tasks, for coding agents like qwen-code in Docker
 scripts/clusters/              running on Cornell's unicorn cluster
 examples/                      end-to-end scripts: data, training and evals in one go
 reproduce_paper/               the paper's data, runs, evals, tables and figures

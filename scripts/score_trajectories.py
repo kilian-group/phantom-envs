@@ -6,7 +6,9 @@ script re-scores episodes post-hoc using the dataset class's scorers. It
 auto-discovers every model subdirectory under ``--eval_dir`` that has a
 trajectory dump at ``<subdir>/dumped_evals/eval_only/<data_source>.jsonl``,
 computes means (± stderr) per model, prints a markdown table to stdout, and
-writes a CSV to ``<eval_dir>/scores/<data_source>.csv``.
+writes a CSV to ``<eval_dir>/scores/<data_source>.csv``. Search episodes answer in ``<answer>`` tags;
+shell episodes answer in a file, whose contents the env saves with the episode (their "searches" are
+tool calls).
 
 Stderr convention:
 - EM / subem (binary): binomial stderr ``sqrt(p*(1-p)/n)``.
@@ -66,14 +68,19 @@ def score_trajectory_file(path: Path, data_source: str, metrics: list[str]) -> d
 
     for record in load_records(path):
         gts = record["env_extras"]["reward_spec"]["ground_truth"]["target"]
-        pred = extract_answer(record.get("output_response", ""))
+        response = record.get("output_response", "")
+        if record.get("env_class") == "phantom_shell":
+            pred = (record["env_extras"].get("answer") or "").strip() or None
+            searches.append(response.count("<tool_call>"))
+        else:
+            pred = extract_answer(response)
+            searches.append(count_searches(response))
         if pred is None:
             n_no_answer += 1
             pred = ""
         preds = scorer.parse_answer(pred)
         for metric in metrics:
             per_metric[metric].append(scorer.score(preds, gts, metric))
-        searches.append(count_searches(record.get("output_response", "")))
 
     return {"metrics": per_metric, "searches": searches, "n_no_answer": n_no_answer}
 
