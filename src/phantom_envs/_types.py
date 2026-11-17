@@ -59,6 +59,13 @@ class EnvConfig:
             "description": "Also use relations that take several articles to resolve (aunt, cousin, ...)."
         },
     )
+    rewrite_docs_with_llm: str | None = field(
+        default=None,
+        metadata={
+            "description": "OpenRouter model (e.g. openai/gpt-6-luna) that rewrites the template articles as "
+            "Wikipedia-style biographies with the same facts; None keeps the templates."
+        },
+    )
     questions_per_template: int = field(
         default=1000,
         metadata={"description": "Questions sampled per template; also its sampling-attempt budget."},

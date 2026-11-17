@@ -4,7 +4,8 @@ Needs SWI-Prolog (``swipl``) on PATH. Output layout of ``output_dir``::
 
     phantom_env.json            manifest: config, content hash, task counts per cell
     universe/facts.pl           the universe as Prolog facts (rules: phantom_envs/generator/rules/)
-    universe/articles.json      one article per person: {"title", "article", "facts"}
+    universe/articles.json      one article per person: {"title", "article", "facts"}, plus "template"
+                                when rewritten with an LLM (EnvConfig.rewrite_docs_with_llm)
     corpus.jsonl                the articles as the retriever's corpus
     tasks/{train,validation}.jsonl
 
@@ -78,7 +79,7 @@ class PhantomEnv:
 
 
 def content_hash(data_dir: str | Path) -> str:
-    """Hash an environment's files, which are all written deterministically.
+    """Hash an environment's files, which are all written deterministically (LLM rewrites aside).
 
     Args:
         data_dir: The environment's data dir.
@@ -206,5 +207,10 @@ def generate(
     if config.sampler == "bidirectional":
         db.add_inverse_relations()
     articles = build_articles(db, workers)
+    manifest = {"config": asdict(config)}
+    if config.rewrite_docs_with_llm:
+        from phantom_envs.generator.rewrite import rewrite_articles
+
+        articles, manifest["rewrite"] = rewrite_articles(articles, config.rewrite_docs_with_llm)
     tasks = [to_task(q, config.name) for q in sample_questions(db, config, workers)]
-    return write_env(output_dir, facts, articles, tasks, config.split, {"config": asdict(config)})
+    return write_env(output_dir, facts, articles, tasks, config.split, manifest)
