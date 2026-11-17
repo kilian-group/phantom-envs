@@ -9,7 +9,8 @@
 #   eval          evaluates on <data_dir>/validation.parquet, with configs/eval.yaml last; needs --out_dir=<dir>
 #   e5|qwen3-4b   retriever encoder: e5 for training, qwen3-4b for paper evals
 #   shell         the phantom_shell env: <data_dir>/shell/*.parquet (prepare_data.py --env shell), with
-#                 configs/envs/shell.yaml right after base.yaml
+#                 configs/envs/shell.yaml right after base.yaml. Its sandbox is ShellSim, or bubblewrap
+#                 with environment.skyrl_gym.phantom_shell.sandbox=bwrap (needs SANDBOX_ROOTFS)
 #   retriever.*   retriever settings, e.g. retriever.faiss_gpu=true for Search-R1
 #   overrides     SkyRL settings in dot notation, and --out_dir / --run_dir / --name
 #
@@ -25,7 +26,7 @@
 set -euo pipefail
 
 usage() {
-    sed -n '5,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '5,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 source "$(dirname "${BASH_SOURCE[0]}")/../launch_common.sh"
@@ -39,6 +40,10 @@ if [ "$ENCODER" = shell ]; then
     # Absolute: Ray runs the entrypoint from its own working dir
     ENV_ARGS=(--config "$CONFIGS/envs/shell.yaml"
         "environment.skyrl_gym.phantom_shell.corpus_path=$(cd "$DATA_DIR" && pwd)/corpus.jsonl")
+    # The bwrap sandbox's image, used with environment.skyrl_gym.phantom_shell.sandbox=bwrap
+    if [ -n "${SANDBOX_ROOTFS:-}" ]; then
+        ENV_ARGS+=("environment.skyrl_gym.phantom_shell.rootfs=$SANDBOX_ROOTFS")
+    fi
 fi
 case $MODE in
     train)

@@ -7,10 +7,16 @@ Usage::
 
     for name, text in corpus_files("data/envs/pw/corpus.jsonl"):
         ...  # e.g. ("Ann_Lee.md", "# Ann Lee\\n\\nThe mother of Ann Lee is ...")
+
+    corpus_dir = write_corpus_dir("data/envs/pw/corpus.jsonl")  # data/envs/pw/shell/corpus/
 """
 
 import json
+import os
 import re
+import shutil
+import tempfile
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -67,3 +73,44 @@ def corpus_files(corpus_path: str | Path) -> Iterator[tuple[str, str]]:
         for line in f:
             doc = json.loads(line)
             yield doc_filename(doc["title"], taken), doc_text(doc["title"], doc["contents"])
+
+
+def corpus_dir_path(corpus_path: str | Path) -> Path:
+    """Return where a corpus lives as files: ``shell/corpus/`` next to its ``corpus.jsonl``."""
+    return Path(corpus_path).resolve().parent / "shell" / "corpus"
+
+
+_write_lock = threading.Lock()
+
+
+def write_corpus_dir(corpus_path: str | Path) -> Path:
+    """Write a corpus as files next to its ``corpus.jsonl``, unless they are already there.
+
+    Safe to call from many threads and processes at once: the files are written to a temporary dir
+    and renamed into place, so a reader never sees a partial corpus.
+
+    Args:
+        corpus_path: The ``corpus.jsonl`` to write out.
+
+    Returns:
+        The corpus dir (see :func:`corpus_dir_path`). An existing dir is kept as is, so delete it
+        after changing ``corpus.jsonl``.
+    """
+    out_dir = corpus_dir_path(corpus_path)
+    with _write_lock:
+        if out_dir.is_dir():
+            return out_dir
+        out_dir.parent.mkdir(parents=True, exist_ok=True)
+        tmp_dir = Path(tempfile.mkdtemp(prefix=".corpus-", dir=out_dir.parent))
+        try:
+            for name, text in corpus_files(corpus_path):
+                (tmp_dir / name).write_text(text)
+            tmp_dir.chmod(0o755)
+            os.rename(tmp_dir, out_dir)
+        except OSError:
+            # Another process finished first; its files are the same
+            if not out_dir.is_dir():
+                raise
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+    return out_dir

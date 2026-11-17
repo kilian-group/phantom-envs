@@ -12,20 +12,31 @@ from skyrl_gym.envs.base_text_env import BaseTextEnv, BaseTextEnvStepOutput
 
 from phantom_envs.scoring import METRICS
 from phantom_envs.terminal.loop import ShellEpisodeState, ShellProtocol, tool_error
-from phantom_envs.terminal.shellsim import ShellSimSandbox, corpus_image
+from phantom_envs.terminal.sandbox import BACKENDS, Sandbox, open_sandbox
 from phantom_envs.terminal.task import has_answer, verify
 
 
 @dataclass
 class PhantomShellEnvConfig:
-    """Config of the phantom_shell env: the corpus its sandboxes serve, and its limits and reward."""
+    """Config of the phantom_shell env: its sandboxes, the corpus they serve, and its limits and reward."""
 
+    sandbox: Literal[BACKENDS] = field(
+        default="shellsim",
+        metadata={"help": "Sandbox backend: shellsim (simulated bash) or bwrap (real processes)"},
+    )
+    rootfs: str = field(
+        default="",
+        metadata={"help": "Root filesystem of the bwrap sandbox (the launcher sets it from SANDBOX_ROOTFS)"},
+    )
     corpus_path: str = field(
         default="",
         metadata={"help": "corpus.jsonl that the sandbox holds under /corpus (set by the launcher)"},
     )
     timeout: float = field(default=60.0, metadata={"help": "Wall-clock limit per command, in seconds"})
-    memory_gib: int = field(default=4, metadata={"help": "Memory limit of each sandbox, in GiB"})
+    memory_gib: int = field(
+        default=4,
+        metadata={"help": "Memory limit in GiB: of the sandbox for shellsim, of each process for bwrap"},
+    )
     max_output_chars: int = field(
         default=8000, metadata={"help": "Tool outputs are cut to this many characters"}
     )
@@ -58,13 +69,13 @@ class PhantomShellEnv(BaseTextEnv):
             max_turns=extras["max_turns"], max_output_chars=env_config.max_output_chars
         )
         self.state = ShellEpisodeState()
-        self.sandbox: ShellSimSandbox | None = None
+        self.sandbox: Sandbox | None = None
         self.answered = False
 
     def init(self, prompt: list[dict[str, str]]) -> tuple[list[dict[str, str]], dict[str, Any]]:
         """Create the episode's sandbox.
 
-        Runs in SkyRL's env executor, so a process's first (slow) corpus load doesn't block rollouts.
+        Runs in SkyRL's env executor, so a process's first (slow) use of a corpus doesn't block rollouts.
 
         Args:
             prompt: The messages that open the episode.
@@ -72,16 +83,20 @@ class PhantomShellEnv(BaseTextEnv):
         Returns:
             The prompt, unchanged, and no extra info.
         """
-        self.sandbox = ShellSimSandbox(
-            corpus_image(self.env_config.corpus_path),
+        self.sandbox = open_sandbox(
+            self.env_config.sandbox,
+            self.env_config.corpus_path,
             timeout=self.env_config.timeout,
             memory_gib=self.env_config.memory_gib,
+            rootfs=self.env_config.rootfs,
         )
         return prompt, {}
 
     def close(self) -> None:
-        """Free the sandbox's own files; the corpus image stays cached."""
-        self.sandbox = None
+        """Close the sandbox; the corpus stays prepared for the next episode."""
+        if self.sandbox is not None:
+            self.sandbox.close()
+            self.sandbox = None
 
     def get_metrics(self) -> dict[str, Any]:
         """Return the episode's metrics, which SkyRL aggregates and logs to W&B.

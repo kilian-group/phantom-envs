@@ -6,16 +6,17 @@ episode's user message), the corpus as the same files under ``/corpus``, and the
 ``/app/output.md``). Writes the corpus once and one task dir per question:
 
     <data_dir>/shell/corpus/<doc>.md                  mounted read-only at /corpus by harbor run
+                                                      (the bwrap sandbox serves the same dir)
     <data_dir>/harbor/<data_source>-<index>/         (environment/ is empty: the image is prebuilt)
         instruction.md
         task.toml                                     the agent may reach only the model API host
         tests/{test.sh, score.py, scoring.py, gold.json}   F1 -> /logs/verifier/reward.txt
 
-Every task uses the image of ``scripts/harbor/shell-task.Dockerfile``; build it once first.
+Every task uses the sandbox image of ``scripts/sandbox/Dockerfile``; build it once first.
 
 Usage:
     uv run python scripts/harbor/export_tasks.py --data_dir data/frames
-    docker build -t phantom-envs-shell-task -f scripts/harbor/shell-task.Dockerfile scripts/harbor
+    docker build -t phantom-envs-sandbox scripts/sandbox
     OPENAI_API_KEY=... OPENAI_BASE_URL=https://openrouter.ai/api/v1 harbor run -p data/frames/harbor \\
         -e docker -a qwen-coder -m openrouter/qwen/qwen4-max -n 32 \\
         --mounts '[{"type": "bind", "source": "<abs data_dir>/shell/corpus", "target": "/corpus", "read_only": true}]'
@@ -29,10 +30,10 @@ from pathlib import Path
 import pyarrow.parquet as pq
 
 import phantom_envs.scoring
-from phantom_envs.terminal.corpus_files import corpus_files
+from phantom_envs.terminal.corpus_files import write_corpus_dir
 from phantom_envs.terminal.task import ANSWER_PATH
 
-IMAGE = "phantom-envs-shell-task"
+IMAGE = "phantom-envs-sandbox"
 
 TASK_TOML = """\
 schema_version = "1.4"
@@ -82,16 +83,6 @@ print(f"answer: {{answer!r}}, gold: {{gold['answers']}}, F1: {{f1}}")
 '''
 
 
-def write_corpus(corpus_path: Path, out_dir: Path) -> int:
-    """Write the corpus as one file per document into ``out_dir``; return the number of documents."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    n = 0
-    for name, text in corpus_files(corpus_path):
-        (out_dir / name).write_text(text)
-        n += 1
-    return n
-
-
 def write_task(task_dir: Path, row: dict, allowed_hosts: list[str], agent_timeout: float) -> None:
     """Write one question's Harbor task dir."""
     tests = task_dir / "tests"
@@ -119,11 +110,7 @@ def write_task(task_dir: Path, row: dict, allowed_hosts: list[str], agent_timeou
 
 def main(args: argparse.Namespace) -> None:
     data_dir = Path(args.data_dir)
-    corpus_dir = data_dir / "shell" / "corpus"
-    if corpus_dir.exists():
-        print(f"{corpus_dir} exists; keeping it")
-    else:
-        print(f"wrote {write_corpus(data_dir / 'corpus.jsonl', corpus_dir)} documents to {corpus_dir}")
+    print(f"the corpus is in {write_corpus_dir(data_dir / 'corpus.jsonl')}")
 
     rows = pq.read_table(data_dir / "shell" / "validation.parquet").to_pylist()
     out = data_dir / "harbor"

@@ -13,7 +13,9 @@ Modules:
 - :mod:`phantom_envs.terminal.task`: the sandbox paths, the instruction and the verifier. Everything
   else builds on these.
 - :mod:`phantom_envs.terminal.corpus_files`: how a corpus becomes files.
-- :mod:`phantom_envs.terminal.shellsim`: the ShellSim sandbox, an in-process simulated bash.
+- :mod:`phantom_envs.terminal.sandbox`: the sandbox interface and :func:`~phantom_envs.terminal.sandbox.open_sandbox`,
+  with two backends: :mod:`~phantom_envs.terminal.shellsim` (an in-process simulated bash) and
+  :mod:`~phantom_envs.terminal.bwrap` (real processes in a bubblewrap sandbox).
 - :mod:`phantom_envs.terminal.loop`: the bare tool loop, for trainers that sample the agent's turns
   themselves: tool-call parsing, when the attempt ends, and the tool responses.
 

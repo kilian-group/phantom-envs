@@ -9,6 +9,9 @@ Usage::
     sandbox = ShellSimSandbox(corpus_image("data/envs/pw/corpus.jsonl"))
     sandbox.run("grep -l 'Ann Lee' /corpus/*.md")
     sandbox.read_answer()  # the contents of /app/output.md, or None
+
+Gotcha: a machine is one long-lived shell. Each command starts in ``/app``, but shell variables and
+functions a command sets stay for the next one, unlike in the bwrap sandbox.
 """
 
 import threading
@@ -17,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from phantom_envs.terminal.corpus_files import corpus_files
+from phantom_envs.terminal.sandbox import Sandbox, format_output
 from phantom_envs.terminal.task import ANSWER_PATH, CORPUS_DIR, WORK_DIR
 
 # Room for the agent's own files on top of the corpus
@@ -82,8 +86,8 @@ def corpus_image(corpus_path: str | Path) -> CorpusImage:
         return _images[key]
 
 
-class ShellSimSandbox:
-    """One episode's ShellSim machine over a shared corpus image, starting in WORK_DIR."""
+class ShellSimSandbox(Sandbox):
+    """One episode's ShellSim machine over a shared corpus image."""
 
     def __init__(self, image: CorpusImage, timeout: float = 60.0, memory_gib: int = 4) -> None:
         """Create the machine.
@@ -104,13 +108,12 @@ class ShellSimSandbox:
             image.native.environment(limits.cpu, limits.memory, limits.disk, limits.output, False), limits
         )
         self.timeout = timeout
-        self.machine.run(f"cd {WORK_DIR}")
 
     def read_answer(self) -> str | None:
         """Read the answer file, for the verifier.
 
         Returns:
-            The file's contents, or None if the agent wrote none.
+            The contents of ``/app/output.md``, or None if the agent wrote none.
         """
         from shellsim import SimulationError
 
@@ -120,10 +123,10 @@ class ShellSimSandbox:
             return None
 
     def run(self, command: str) -> str:
-        """Run one command.
+        """Run one bash command in ``/app``.
 
         Args:
-            command: The bash command.
+            command: The command.
 
         Returns:
             Its stdout and stderr, with a note on a timeout or a non-zero exit code.
@@ -132,6 +135,8 @@ class ShellSimSandbox:
 
         if self.machine.terminated:
             return "[the sandbox has stopped: it ran out of resources]"
+        # The machine is one long-lived shell; every command starts in the working dir all the same
+        self.machine.run(f"cd {WORK_DIR}")
         token = CancellationToken()
         timer = threading.Timer(self.timeout, token.cancel)
         timer.start()
@@ -139,9 +144,5 @@ class ShellSimSandbox:
             result = self.machine.run(command, cancellation=token)
         finally:
             timer.cancel()
-        text = (result.stdout + result.stderr).decode(errors="replace")
-        if result.interrupted:
-            text += f"\n[the command timed out after {self.timeout:g} s]"
-        elif result.returncode != 0:
-            text += f"\n[exit code {result.returncode}]"
-        return text or "[no output]"
+        output = (result.stdout + result.stderr).decode(errors="replace")
+        return format_output(output, result.returncode, self.timeout if result.interrupted else None)
