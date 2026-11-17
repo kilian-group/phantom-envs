@@ -56,6 +56,7 @@ class PhantomShellEnvConfig:
         metadata={"help": "corpus.jsonl that the sandbox holds under /corpus (set by the launcher)"},
     )
     timeout: float = field(default=60.0, metadata={"help": "Wall-clock limit per command, in seconds"})
+    memory_gib: int = field(default=4, metadata={"help": "Memory limit of each sandbox, in GiB"})
     max_output_chars: int = field(
         default=8000, metadata={"help": "Tool outputs are cut to this many characters"}
     )
@@ -173,7 +174,9 @@ class PhantomShellEnv(BaseTextEnv):
     def init(self, prompt: list[dict[str, str]]) -> tuple[list[dict[str, str]], dict[str, Any]]:
         # Runs in SkyRL's env executor, so a process's first (slow) corpus load doesn't block rollouts
         self.sandbox = ShellSandbox(
-            corpus_image(self.env_config.corpus_path), timeout=self.env_config.timeout
+            corpus_image(self.env_config.corpus_path),
+            timeout=self.env_config.timeout,
+            memory_gib=self.env_config.memory_gib,
         )
         return prompt, {}
 

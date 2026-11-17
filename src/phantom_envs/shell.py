@@ -206,18 +206,21 @@ def corpus_image(corpus_path: str | Path) -> CorpusImage:
 class ShellSandbox:
     """One episode's ShellSim machine over a shared corpus image, starting in WORK_DIR."""
 
-    def __init__(self, image: CorpusImage, timeout: float = 60.0):
+    def __init__(self, image: CorpusImage, timeout: float = 60.0, memory_gib: int = 4):
         """Create the machine.
 
         Args:
             image: The corpus image.
             timeout: Wall-clock limit per command, in seconds.
+            memory_gib: Memory limit of the machine, in GiB.
         """
         from shellsim import Limits
         from shellsim._api import Environment
 
         # CPU and output limits would end the machine for good, so commands are bounded by wall time
-        limits = Limits(cpu=10**15, memory=4 * 1024**3, disk=image.num_bytes + SCRATCH_BYTES, output=1024**3)
+        limits = Limits(
+            cpu=10**15, memory=memory_gib * 1024**3, disk=image.num_bytes + SCRATCH_BYTES, output=1024**5
+        )
         self.machine = Environment._from_native(
             image.native.environment(limits.cpu, limits.memory, limits.disk, limits.output, False), limits
         )
