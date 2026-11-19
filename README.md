@@ -24,6 +24,8 @@ harness, it searches the articles as files with bash in a sandbox and writes its
 
 ## News
 
+- **2026-Nov-19:** [Fine-tune Inkling 2 Small with Tinker](examples/train_inkling_tinker.sh) in the pi harness,
+  improving F1 score from 65% to 75% (Qwen4-Max: 69%). Training cost ~$145 on Tinker and took 6 hours.
 - **2026-Nov-19:** [Train Qwen3.5-9B in the pi harness](examples/train_pi_qwen35-9b.sh), with bash in a
   sandbox, improving F1 score from 46% to 62% (Qwen4-Max: 69%). On an 8xH100 node, training took 15
   hours.
@@ -43,7 +45,7 @@ sudo add-apt-repository -y ppa:swi-prolog/stable && sudo apt-get install -y swi-
 conda create -n swipl -c conda-forge swi-prolog && conda activate swipl
 
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync --extra skyrl   # without --extra skyrl: environment generation only
+uv sync --extra skyrl   # without --extra skyrl: environment generation only; add --extra tinker for Tinker
 cp .env.example .env    # W&B and run dirs
 
 # For the terminal style: bubblewrap, and its sandbox image (built with Docker; then set its path in .env)
@@ -205,6 +207,7 @@ uv run python scripts/score_trajectories.py --eval_dir out__eval=hp500__pi --dat
 ```
 src/phantom_envs/              environment generation, the search and terminal episodes, scoring, the retriever
 scripts/skyrl/                 the SkyRL launcher, entrypoints, configs and data prep
+scripts/tinker/                training and evals through the Tinker API, and their model configs
 scripts/benchmarks/            real-world benchmarks as data dirs
 scripts/score_trajectories.py  EM / F1 of dumped eval trajectories
 scripts/sandbox/               the terminal style's sandbox image
