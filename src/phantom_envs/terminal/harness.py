@@ -3,7 +3,7 @@
 Without a harness, a trainer samples each turn itself and `loop` decides what to run. A harness such
 as pi takes that loop over: it gets the task as its prompt, calls the model through an
 OpenAI-compatible endpoint, runs the model's commands itself, and exits when the agent is done. The
-verifier then reads the answer file, as in every shell episode.
+verifier then reads the answer file, as in every terminal episode.
 
 A harness needs real processes, so it runs in the bwrap sandbox. The sandbox has no network; the
 model endpoint reaches it through a relay over a Unix socket (see `relay`).

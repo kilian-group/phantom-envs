@@ -1,4 +1,4 @@
-"""The bare tool loop of a shell episode, with no I/O, for trainers that sample the agent's turns.
+"""The bare tool loop of a terminal episode, with no I/O, for trainers that sample the agent's turns.
 
 The agent calls a `bash` tool in Qwen3.5's tool-call format (`<tool_call><function=bash>
 <parameter=command>`) and gets each command's output back as a tool response. The attempt ends on a
@@ -83,7 +83,7 @@ def truncate(text: str, max_chars: int) -> str:
 
 @dataclass
 class ShellEpisodeState:
-    """Mutable state of one shell episode."""
+    """Mutable state of one terminal episode."""
 
     turns: int = field(default=0, metadata={"description": "Agent turns taken so far."})
     commands: int = field(default=0, metadata={"description": "Tool calls made so far."})

@@ -70,7 +70,7 @@ class TestGeneratorOutput:
         ]
 
     def test_one_valid_row_per_episode(self):
-        output = to_generator_output(self.episodes(), ["phantom_shell"] * 3)
+        output = to_generator_output(self.episodes(), ["phantom_terminal"] * 3)
         validate_generator_output(3, output, step_wise=False)
         assert output["rewards"] == [1.0, 0.0, 0.0]
         assert output["stop_reasons"] == ["stop", "length", "error"]
@@ -78,14 +78,14 @@ class TestGeneratorOutput:
         assert output["env_metrics"][0] == {"num_turns": 2, "num_commands": 1, "answered": 1.0}
 
     def test_metrics_count_what_went_wrong(self):
-        metrics = to_generator_output(self.episodes(), ["phantom_shell"] * 3)["rollout_metrics"]
+        metrics = to_generator_output(self.episodes(), ["phantom_terminal"] * 3)["rollout_metrics"]
         assert metrics["generate/harness/num_error_episodes"] == 1
         assert metrics["generate/harness/num_context_length_episodes"] == 1
         assert metrics["generate/harness/num_timeout_episodes"] == 0
         assert metrics["environment/answered"] == pytest.approx(1 / 3)
 
     def test_overlong_filtering_masks_unfinished_episodes(self):
-        kept = to_generator_output(self.episodes(), ["phantom_shell"] * 3)["loss_masks"]
-        filtered = to_generator_output(self.episodes(), ["phantom_shell"] * 3, overlong_filtering=True)
+        kept = to_generator_output(self.episodes(), ["phantom_terminal"] * 3)["loss_masks"]
+        filtered = to_generator_output(self.episodes(), ["phantom_terminal"] * 3, overlong_filtering=True)
         assert any(kept[1]) and not any(filtered["loss_masks"][1])
         assert filtered["loss_masks"][0] == kept[0]

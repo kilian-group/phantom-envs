@@ -1,6 +1,6 @@
-"""The shell task: where the agent works, what it is asked, and how its answer is verified.
+"""The terminal task: where the agent works, what it is asked, and how its answer is verified.
 
-These are the parts of a shell episode that every sandbox and every agent loop share. The agent
+These are the parts of a terminal episode that every sandbox and every agent loop share. The agent
 finds the documents under `CORPUS_DIR`, works in `WORK_DIR`, and writes its final answer to
 `ANSWER_PATH`; `verify` scores what it wrote.
 
@@ -47,7 +47,7 @@ def build_instruction(question: str) -> str:
 
 
 def build_messages(question: str) -> list[dict[str, str]]:
-    """Return the system and user chat messages that open a shell episode.
+    """Return the system and user chat messages that open a terminal episode.
 
     Args:
         question: The question to answer.

@@ -7,7 +7,7 @@ auto-discovers every model subdirectory under ``--eval_dir`` that has a
 trajectory dump at ``<subdir>/dumped_evals/eval_only/<data_source>.jsonl``,
 computes means (± stderr) per model, prints a markdown table to stdout, and
 writes a CSV to ``<eval_dir>/scores/<data_source>.csv``. Search episodes answer in ``<answer>`` tags;
-shell episodes answer in a file, whose contents the env saves with the episode (their "searches" are
+terminal episodes answer in a file, whose contents the env saves with the episode (their "searches" are
 tool calls).
 
 Stderr convention:
@@ -69,7 +69,7 @@ def score_trajectory_file(path: Path, data_source: str, metrics: list[str]) -> d
     for record in load_records(path):
         gts = record["env_extras"]["reward_spec"]["ground_truth"]["target"]
         response = record.get("output_response", "")
-        if record.get("env_class") == "phantom_shell":
+        if record.get("env_class") == "phantom_terminal":
             pred = (record["env_extras"].get("answer") or "").strip() or None
             searches.append(response.count("<tool_call>"))
         else:

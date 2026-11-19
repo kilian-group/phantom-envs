@@ -137,18 +137,18 @@ bash scripts/skyrl/launch_skyrl.sh train e5 data/envs/pw \
 
 #### Terminal style
 
-Write the shell parquets and pass `shell` in place of the encoder, with the sandbox and pi settings
+Write the terminal parquets and pass `terminal` in place of the encoder, with the sandbox and pi settings
 below. There is no retriever: each episode runs pi in its own sandbox, with the articles as files under
 `/corpus`, and the agent writes its answer to `/app/output.md`.
 [examples/train_pi_qwen35-9b.sh](examples/train_pi_qwen35-9b.sh) runs it end to end.
 
 ```bash
 # Set CUDA_HOME in .env so that Qwen3.5 kernels get compiled for fast training
-uv run python scripts/skyrl/prepare_data.py --data_dir data/envs/pw --env shell
-bash scripts/skyrl/launch_skyrl.sh train shell data/envs/pw \
+uv run python scripts/skyrl/prepare_data.py --data_dir data/envs/pw --env terminal
+bash scripts/skyrl/launch_skyrl.sh train terminal data/envs/pw \
     --config scripts/skyrl/configs/models/Qwen3.5-9B.yaml \
-    environment.skyrl_gym.phantom_shell.sandbox=bwrap \
-    environment.skyrl_gym.phantom_shell.harness=pi \
+    environment.skyrl_gym.phantom_terminal.sandbox=bwrap \
+    environment.skyrl_gym.phantom_terminal.harness=pi \
     trainer.train_batch_size=128 \
     trainer.policy_mini_batch_size=128 \
     trainer.hf_save_interval=40
@@ -184,15 +184,15 @@ For your own runs, pass `trainer.policy.model.path=<run>/exports/global_step_<N>
 
 #### Terminal style
 
-Pass `shell` and the same sandbox and pi settings here too. Evals run on all 8 GPUs (the Qwen3.5-9B
+Pass `terminal` and the same sandbox and pi settings here too. Evals run on all 8 GPUs (the Qwen3.5-9B
 config runs 4 vLLM engines with tensor parallelism 2):
 
 ```bash
-uv run python scripts/skyrl/prepare_data.py --data_dir data/hp500 --env shell
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 bash scripts/skyrl/launch_skyrl.sh eval shell data/hp500 \
+uv run python scripts/skyrl/prepare_data.py --data_dir data/hp500 --env terminal
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 bash scripts/skyrl/launch_skyrl.sh eval terminal data/hp500 \
     --config scripts/skyrl/configs/models/Qwen3.5-9B.yaml \
-    environment.skyrl_gym.phantom_shell.sandbox=bwrap \
-    environment.skyrl_gym.phantom_shell.harness=pi \
+    environment.skyrl_gym.phantom_terminal.sandbox=bwrap \
+    environment.skyrl_gym.phantom_terminal.harness=pi \
     trainer.policy.model.path=<run>/exports/global_step_120/policy \
     --out_dir=out__eval=hp500__pi
 uv run python scripts/score_trajectories.py --eval_dir out__eval=hp500__pi --data_source hp500

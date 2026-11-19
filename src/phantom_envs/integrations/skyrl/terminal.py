@@ -1,4 +1,4 @@
-"""The `phantom_shell` SkyRL-Gym environment without a harness: a coding agent with a terminal (a
+"""The `phantom_terminal` SkyRL-Gym environment without a harness: a coding agent with a terminal (a
 bash tool) in a sandbox over the corpus.
 
 SkyRL's generator samples the agent's turns; `ShellProtocol` decides when the attempt ends, a sandbox
@@ -23,8 +23,8 @@ HARNESSES: tuple[str, ...] = ("none", "pi")
 
 
 @dataclass
-class PhantomShellEnvConfig:
-    """Config of the phantom_shell env: its sandboxes, the corpus they serve, and its limits and reward.
+class PhantomTerminalEnvConfig:
+    """Config of the phantom_terminal env: its sandboxes, the corpus they serve, and its limits and reward.
 
     Harness runs (`harness: pi`) read the same config, in `HarnessGenerator`.
     """
@@ -74,23 +74,23 @@ class PhantomShellEnvConfig:
     )
 
 
-class PhantomShellEnv(BaseTextEnv):
-    """One shell episode driven by SkyRL's generator.
+class PhantomTerminalEnv(BaseTextEnv):
+    """One terminal episode driven by SkyRL's generator.
 
     Needs `generator.use_conversation_multi_turn=true`: tool outputs go back as tool messages, which
     the chat template turns into tool responses.
     """
 
-    def __init__(self, env_config: PhantomShellEnvConfig, extras: dict[str, Any] | None = None) -> None:
+    def __init__(self, env_config: PhantomTerminalEnvConfig, extras: dict[str, Any] | None = None) -> None:
         """Set up one episode; `init` creates its sandbox.
 
         Args:
-            env_config: The `environment.skyrl_gym.phantom_shell` config.
+            env_config: The `environment.skyrl_gym.phantom_terminal` config.
             extras: The dataset row's fields: `reward_spec.ground_truth.target` (the gold answers),
                 `data_source` and `max_turns`.
         """
         super().__init__()
-        assert env_config.corpus_path, "environment.skyrl_gym.phantom_shell.corpus_path must be set"
+        assert env_config.corpus_path, "environment.skyrl_gym.phantom_terminal.corpus_path must be set"
         self.env_config = env_config
         self.extras: dict[str, Any] = extras  # NOTE: mutate this to store metrics
         self.protocol = ShellProtocol(

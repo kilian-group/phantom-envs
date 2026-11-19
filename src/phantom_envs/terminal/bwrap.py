@@ -19,7 +19,7 @@ needs a cgroup. A sandbox ends with the process that started it.
 
 Usage:
 
-    with BwrapSandbox("data/envs/pw/shell/corpus", rootfs="/path/to/rootfs") as sandbox:
+    with BwrapSandbox("data/envs/pw/terminal/corpus", rootfs="/path/to/rootfs") as sandbox:
         sandbox.run("grep -l 'Ann Lee' /corpus/*.md")
         answer = sandbox.read_answer()
 

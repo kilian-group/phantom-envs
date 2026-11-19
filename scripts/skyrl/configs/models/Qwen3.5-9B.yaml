@@ -34,6 +34,6 @@ generator:
 
 environment:
   skyrl_gym:
-    phantom_shell:
+    phantom_terminal:
       # For harness runs (harness: pi) on a checkpoint dir: the base model names the chat format
       chat_format_model: Qwen/Qwen3.5-9B

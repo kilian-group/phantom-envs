@@ -1,4 +1,4 @@
-# The image of the shell sandbox: bash with GNU tools, ripgrep and Python, plus Node.js and the pi
+# The image of the terminal sandbox: bash with GNU tools, ripgrep and Python, plus Node.js and the pi
 # coding agent. The corpus is not in the image; it is mounted read-only at /corpus.
 #
 # Two things run it:

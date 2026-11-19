@@ -52,7 +52,7 @@ def train_entrypoint(cfg: SkyRLTrainConfig) -> None:
     from phantom_envs.integrations.skyrl.harness import HarnessGeneratorMixin
 
     class Experiment(HarnessGeneratorMixin, BasePPOExp):
-        """SkyRL's PPO experiment; shell runs with a harness get the harness generator."""
+        """SkyRL's PPO experiment; terminal runs with a harness get the harness generator."""
 
     register()
     Experiment(cfg).run()

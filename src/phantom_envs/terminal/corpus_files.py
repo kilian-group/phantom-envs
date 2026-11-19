@@ -8,7 +8,7 @@ Usage:
     for name, text in corpus_files("data/envs/pw/corpus.jsonl"):
         ...  # e.g. ("Ann_Lee.md", "# Ann Lee\\n\\nThe mother of Ann Lee is ...")
 
-    corpus_dir = write_corpus_dir("data/envs/pw/corpus.jsonl")  # data/envs/pw/shell/corpus/
+    corpus_dir = write_corpus_dir("data/envs/pw/corpus.jsonl")  # data/envs/pw/terminal/corpus/
 """
 
 import json
@@ -76,7 +76,7 @@ def corpus_files(corpus_path: str | Path) -> Iterator[tuple[str, str]]:
 
 
 def corpus_dir_path(corpus_path: str | Path) -> Path:
-    """Return where a corpus lives as files: `shell/corpus/` next to its `corpus.jsonl`.
+    """Return where a corpus lives as files: `terminal/corpus/` next to its `corpus.jsonl`.
 
     Args:
         corpus_path: The corpus's `corpus.jsonl`.
@@ -84,7 +84,7 @@ def corpus_dir_path(corpus_path: str | Path) -> Path:
     Returns:
         The corpus dir's path, whether or not it exists yet.
     """
-    return Path(corpus_path).resolve().parent / "shell" / "corpus"
+    return Path(corpus_path).resolve().parent / "terminal" / "corpus"
 
 
 # Serializes this process's writers; the rename in write_corpus_dir handles other processes

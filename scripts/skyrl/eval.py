@@ -56,7 +56,7 @@ def eval_entrypoint(cfg: SkyRLTrainConfig) -> dict[str, Any]:
     from phantom_envs.integrations.skyrl.harness import HarnessGeneratorMixin
 
     class Experiment(HarnessGeneratorMixin, EvalOnlyEntrypoint):
-        """SkyRL's eval-only experiment; shell runs with a harness get the harness generator."""
+        """SkyRL's eval-only experiment; terminal runs with a harness get the harness generator."""
 
     register()
     exp = Experiment(cfg)

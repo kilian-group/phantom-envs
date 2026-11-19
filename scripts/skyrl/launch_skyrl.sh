@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 # Run one SkyRL training or eval job on this node, with a retrieval server over <data_dir>, or with
-# the shell env (a coding agent with bash over <data_dir>/corpus.jsonl, no retriever).
+# the terminal env (a coding agent with bash over <data_dir>/corpus.jsonl, no retriever).
 #
 # Usage:
-#   bash scripts/skyrl/launch_skyrl.sh <train|eval> <e5|qwen3-4b|shell> <data_dir> [--config <yaml>]... [overrides]...
+#   bash scripts/skyrl/launch_skyrl.sh <train|eval> <e5|qwen3-4b|terminal> <data_dir> [--config <yaml>]... [overrides]...
 #
 #   train         trains on <data_dir>/{train,validation}.parquet
 #   eval          evaluates on <data_dir>/validation.parquet, with configs/eval.yaml last; needs --out_dir=<dir>
 #   e5|qwen3-4b   retriever encoder: e5 for training, qwen3-4b for paper evals
-#   shell         the phantom_shell env: <data_dir>/shell/*.parquet (prepare_data.py --env shell), with
+#   terminal      the phantom_terminal env: <data_dir>/terminal/*.parquet (prepare_data.py --env terminal), with
 #                 configs/envs/shellsim.yaml right after base.yaml. Its sandbox is ShellSim, or bubblewrap
-#                 with environment.skyrl_gym.phantom_shell.sandbox=bwrap (needs SANDBOX_ROOTFS)
+#                 with environment.skyrl_gym.phantom_terminal.sandbox=bwrap (needs SANDBOX_ROOTFS)
 #   retriever.*   retriever settings, e.g. retriever.faiss_gpu=true for Search-R1
 #   overrides     SkyRL settings in dot notation, and --out_dir / --run_dir / --name
 #
@@ -21,8 +21,8 @@
 #   bash scripts/skyrl/launch_skyrl.sh train e5 data/pw/depth_16_size_1000_seed_1_50k trainer.seed=2
 #   CUDA_VISIBLE_DEVICES=3 bash scripts/skyrl/launch_skyrl.sh eval qwen3-4b data/hp500 --out_dir=out__eval=hp500 \
 #       trainer.policy.model.path=<run>/exports/global_step_160/policy
-#   bash scripts/skyrl/launch_skyrl.sh eval shell data/hp500 --config scripts/skyrl/configs/models/Qwen3.5-9B.yaml \
-#       --out_dir=out__eval=hp500__shell
+#   bash scripts/skyrl/launch_skyrl.sh eval terminal data/hp500 --config scripts/skyrl/configs/models/Qwen3.5-9B.yaml \
+#       --out_dir=out__eval=hp500__terminal
 set -euo pipefail
 
 usage() {
@@ -35,14 +35,14 @@ launch_setup "$@"
 CONFIGS=scripts/skyrl/configs
 PARQUET_DIR=$DATA_DIR
 ENV_ARGS=()
-if [ "$ENCODER" = shell ]; then
-    PARQUET_DIR=$DATA_DIR/shell
+if [ "$ENCODER" = terminal ]; then
+    PARQUET_DIR=$DATA_DIR/terminal
     # Absolute: Ray runs the entrypoint from its own working dir
     ENV_ARGS=(--config "$CONFIGS/envs/shellsim.yaml"
-        "environment.skyrl_gym.phantom_shell.corpus_path=$(cd "$DATA_DIR" && pwd)/corpus.jsonl")
-    # The bwrap sandbox's image, used with environment.skyrl_gym.phantom_shell.sandbox=bwrap
+        "environment.skyrl_gym.phantom_terminal.corpus_path=$(cd "$DATA_DIR" && pwd)/corpus.jsonl")
+    # The bwrap sandbox's image, used with environment.skyrl_gym.phantom_terminal.sandbox=bwrap
     if [ -n "${SANDBOX_ROOTFS:-}" ]; then
-        ENV_ARGS+=("environment.skyrl_gym.phantom_shell.rootfs=$SANDBOX_ROOTFS")
+        ENV_ARGS+=("environment.skyrl_gym.phantom_terminal.rootfs=$SANDBOX_ROOTFS")
     fi
 fi
 case $MODE in
@@ -61,7 +61,7 @@ if [ -n "$TRAINER_GPUS" ]; then
     GPU_ARGS=("trainer.placement.policy_num_gpus_per_node=$TRAINER_GPUS")
 fi
 
-if [ "$ENCODER" != shell ]; then
+if [ "$ENCODER" != terminal ]; then
     start_retriever
     ENV_ARGS=("environment.skyrl_gym.phantom_search.search_url=$SEARCH_URL")
 fi

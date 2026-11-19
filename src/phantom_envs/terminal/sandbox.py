@@ -1,4 +1,4 @@
-"""The sandbox of a shell episode: where the agent's commands run.
+"""The sandbox of a terminal episode: where the agent's commands run.
 
 Every backend keeps the same contract, so an episode behaves the same on any of them:
 

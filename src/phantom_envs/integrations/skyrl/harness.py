@@ -1,6 +1,6 @@
-"""Shell episodes run by a coding-agent harness, as a SkyRL generator.
+"""Terminal episodes run by a coding-agent harness, as a SkyRL generator.
 
-With `environment.skyrl_gym.phantom_shell.harness` set (e.g. to `pi`), the harness runs the agent's
+With `environment.skyrl_gym.phantom_terminal.harness` set (e.g. to `pi`), the harness runs the agent's
 loop inside the bwrap sandbox, and SkyRL doesn't see the turns. skycap
 (https://github.com/NovaSky-AI/SkyRL/tree/main/skycap) sits between the two: each episode gets its
 own OpenAI-compatible URL on a capture server in this process, which renders the harness's chat
@@ -227,17 +227,17 @@ class HarnessGenerator(GeneratorInterface):
         """Set up the generator; capture servers start with the first batch.
 
         Args:
-            cfg: The run's config. Its `environment.skyrl_gym.phantom_shell` picks the harness.
+            cfg: The run's config. Its `environment.skyrl_gym.phantom_terminal` picks the harness.
             inference_engine_client: SkyRL's client of the engines that serve the policy.
 
         Raises:
             ValueError: If the config asks for something a harness can't do.
         """
-        shell_cfg = cfg.environment.skyrl_gym.phantom_shell
+        terminal_cfg = cfg.environment.skyrl_gym.phantom_terminal
         engine_cfg = cfg.generator.inference_engine
-        if shell_cfg.sandbox != "bwrap":
+        if terminal_cfg.sandbox != "bwrap":
             raise ValueError(
-                "A harness runs real programs: set environment.skyrl_gym.phantom_shell.sandbox=bwrap"
+                "A harness runs real programs: set environment.skyrl_gym.phantom_terminal.sandbox=bwrap"
             )
         if cfg.generator.step_wise_trajectories:
             raise ValueError("A harness episode is one row: set generator.step_wise_trajectories=false")
@@ -245,7 +245,7 @@ class HarnessGenerator(GeneratorInterface):
             raise ValueError("Routed experts and sampler support are not captured with a harness")
 
         self.cfg = cfg
-        self.shell_cfg = shell_cfg
+        self.terminal_cfg = terminal_cfg
         self.inference_engine_client = inference_engine_client
         self.policy_model_name = resolve_policy_model_name(cfg)
         self.max_model_len: int = (engine_cfg.engine_init_kwargs or {}).get("max_model_len") or (
@@ -253,10 +253,10 @@ class HarnessGenerator(GeneratorInterface):
         )
         self.harness: Harness = PiHarness(
             max_turns=cfg.generator.max_turns,
-            command_timeout=shell_cfg.timeout,
-            max_output_chars=shell_cfg.max_output_chars,
-            episode_timeout=shell_cfg.episode_timeout,
-            system_prompt=shell_cfg.system_prompt or None,
+            command_timeout=terminal_cfg.timeout,
+            max_output_chars=terminal_cfg.max_output_chars,
+            episode_timeout=terminal_cfg.episode_timeout,
+            system_prompt=terminal_cfg.system_prompt or None,
         )
         # One capture server per sampling setup: training and evaluation may sample differently
         self.captures: dict[tuple, CaptureService] = {}
@@ -278,7 +278,7 @@ class HarnessGenerator(GeneratorInterface):
                 k: v for k, v in self.cfg.generator.chat_template_kwargs.items() if k != "tools"
             }
             # The renderer picks the chat format by base model name; a checkpoint dir has none
-            chat_format_model = self.shell_cfg.chat_format_model or self.cfg.trainer.policy.model.path
+            chat_format_model = self.terminal_cfg.chat_format_model or self.cfg.trainer.policy.model.path
             service = CaptureService(
                 self.inference_engine_client.get_endpoint_url(),
                 mode="tokens",
@@ -390,7 +390,7 @@ class HarnessGenerator(GeneratorInterface):
             # As in SkyRL's generator: a turn cut at its token limit is still verified, and an
             # episode that outgrew the context scores 0
             scored = run.stop_reason in ("stop", "length")
-            reward = scores[self.shell_cfg.reward_func] if scored else 0.0
+            reward = scores[self.terminal_cfg.reward_func] if scored else 0.0
             if run.error:
                 logger.warning(f"A harness episode ended with {run.stop_reason}: {run.error}")
             finished = await trajectory.finish({"reward": reward, "stop_reason": run.stop_reason})
@@ -410,10 +410,10 @@ class HarnessGenerator(GeneratorInterface):
         """Open a bwrap sandbox over the env's corpus."""
         return open_sandbox(
             "bwrap",
-            self.shell_cfg.corpus_path,
-            timeout=self.shell_cfg.timeout,
-            memory_gib=self.shell_cfg.memory_gib,
-            rootfs=self.shell_cfg.rootfs,
+            self.terminal_cfg.corpus_path,
+            timeout=self.terminal_cfg.timeout,
+            memory_gib=self.terminal_cfg.memory_gib,
+            rootfs=self.terminal_cfg.rootfs,
         )
 
 
@@ -429,8 +429,8 @@ class HarnessGeneratorMixin:
         tokenizer: PreTrainedTokenizerBase,
         inference_engine_client: InferenceEngineInterface,
     ) -> GeneratorInterface:
-        """Return `HarnessGenerator` for shell runs with a harness, else SkyRL's own generator."""
-        shell = cfg.environment.env_class == "phantom_shell"
-        if shell and cfg.environment.skyrl_gym.phantom_shell.harness != "none":
+        """Return `HarnessGenerator` for terminal runs with a harness, else SkyRL's own generator."""
+        terminal = cfg.environment.env_class == "phantom_terminal"
+        if terminal and cfg.environment.skyrl_gym.phantom_terminal.harness != "none":
             return HarnessGenerator(cfg, inference_engine_client)
         return super().get_generator(cfg, tokenizer, inference_engine_client)

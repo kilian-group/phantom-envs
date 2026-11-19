@@ -1,11 +1,11 @@
 #!/usr/bin/env -S uv run python
-"""Export a data dir's shell questions as Harbor tasks, to run Harbor's coding agents on them.
+"""Export a data dir's terminal questions as Harbor tasks, to run Harbor's coding agents on them.
 
-The tasks match the ShellSim episodes of ``launch_skyrl.sh eval shell``: the same instruction (the
+The tasks match the ShellSim episodes of ``launch_skyrl.sh eval terminal``: the same instruction (the
 episode's user message), the corpus as the same files under ``/corpus``, and the same verifier (F1 of
 ``/app/output.md``). Writes the corpus once and one task dir per question:
 
-    <data_dir>/shell/corpus/<doc>.md                  mounted read-only at /corpus by harbor run
+    <data_dir>/terminal/corpus/<doc>.md               mounted read-only at /corpus by harbor run
                                                       (the bwrap sandbox serves the same dir)
     <data_dir>/harbor/<data_source>-<index>/         (environment/ is empty: the image is prebuilt)
         instruction.md
@@ -19,7 +19,7 @@ Usage:
     docker build -t phantom-envs-sandbox scripts/sandbox
     OPENAI_API_KEY=... OPENAI_BASE_URL=https://openrouter.ai/api/v1 harbor run -p data/frames/harbor \\
         -e docker -a qwen-coder -m openrouter/qwen/qwen4-max -n 32 \\
-        --mounts '[{"type": "bind", "source": "<abs data_dir>/shell/corpus", "target": "/corpus", "read_only": true}]'
+        --mounts '[{"type": "bind", "source": "<abs data_dir>/terminal/corpus", "target": "/corpus", "read_only": true}]'
 """
 
 import argparse
@@ -112,7 +112,7 @@ def main(args: argparse.Namespace) -> None:
     data_dir = Path(args.data_dir)
     print(f"the corpus is in {write_corpus_dir(data_dir / 'corpus.jsonl')}")
 
-    rows = pq.read_table(data_dir / "shell" / "validation.parquet").to_pylist()
+    rows = pq.read_table(data_dir / "terminal" / "validation.parquet").to_pylist()
     out = data_dir / "harbor"
     for row in rows:
         name = f"{row['data_source']}-{row['extra_info']['index']:04d}"
@@ -125,7 +125,7 @@ if __name__ == "__main__":
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument(
-        "--data_dir", required=True, help="Data dir with corpus.jsonl and shell/validation.parquet"
+        "--data_dir", required=True, help="Data dir with corpus.jsonl and terminal/validation.parquet"
     )
     parser.add_argument(
         "--allowed_hosts",
