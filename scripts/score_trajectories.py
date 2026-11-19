@@ -7,8 +7,8 @@ auto-discovers every model subdirectory under ``--eval_dir`` that has a
 trajectory dump at ``<subdir>/dumped_evals/eval_only/<data_source>.jsonl``,
 computes means (± stderr) per model, prints a markdown table to stdout, and
 writes a CSV to ``<eval_dir>/scores/<data_source>.csv``. Search episodes answer in ``<answer>`` tags;
-terminal episodes answer in a file, whose contents the env saves with the episode (their "searches" are
-tool calls).
+terminal episodes answer in a file, whose contents the env saves with the episode when it scored it
+(their "searches" are tool calls).
 
 Stderr convention:
 - EM / subem (binary): binomial stderr ``sqrt(p*(1-p)/n)``.

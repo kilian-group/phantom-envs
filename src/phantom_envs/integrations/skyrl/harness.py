@@ -114,7 +114,9 @@ class Episode:
 
     stop_reason: str = field(metadata={"description": "stop, length, context_length, timeout or error."})
     reward: float = field(default=0.0, metadata={"description": "The verifier's score."})
-    answer: str | None = field(default=None, metadata={"description": "The answer file's contents."})
+    answer: str | None = field(
+        default=None, metadata={"description": "The answer file's contents, if the episode was scored."}
+    )
     sample: Sample | None = field(
         default=None, metadata={"description": "The episode's tokens; None if skycap captured none."}
     )
@@ -341,8 +343,10 @@ class HarnessGenerator(GeneratorInterface):
         finally:
             await asyncio.to_thread(service.stop)
         for extra, episode in zip(extras, episodes, strict=True):
-            # NOTE: mutate the extras to store the turns and the answer, saved in SkyRL's eval dumps
+            # NOTE: mutate the extras to store the episode's outcome, saved in SkyRL's eval dumps. The
+            # answer is there only if it was scored, so scoring a dump agrees with the reward.
             extra["num_turns"] = episode.turns
+            extra["stop_reason"] = episode.stop_reason
             extra["answer"] = episode.answer
         return to_generator_output(
             list(episodes), input_batch["env_classes"], self.cfg.generator.apply_overlong_filtering
@@ -412,11 +416,11 @@ class HarnessGenerator(GeneratorInterface):
 
         if finished.status != "finished" or not finished.samples:
             logger.warning(f"skycap captured no tokens to train on (status {finished.status!r})")
-            return Episode(stop_reason="error", answer=answer)
+            return Episode(stop_reason="error")
         return Episode(
             stop_reason=run.stop_reason,
             reward=reward,
-            answer=answer,
+            answer=answer if scored else None,
             sample=finished.samples[0],
             unbridged_calls=finished.unbridged_calls,
         )
