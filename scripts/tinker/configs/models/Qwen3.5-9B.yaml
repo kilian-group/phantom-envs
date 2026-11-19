@@ -1,0 +1,32 @@
+# Qwen3.5-9B through hosted Tinker, set up as the SkyRL pi run (scripts/skyrl/configs/models/Qwen3.5-9B.yaml
+# with harness=pi): no thinking, pi in the bwrap sandbox, 128 questions x 8 episodes per step. Unlike
+# that run, Tinker trains a LoRA adapter.
+#
+#   uv run --extra tinker --env-file .env python scripts/tinker/train.py \
+#       --config scripts/tinker/configs/models/Qwen3.5-9B.yaml data_dir=data/envs/pw
+#   uv run --extra tinker --env-file .env python scripts/tinker/eval.py \
+#       --config scripts/tinker/configs/models/Qwen3.5-9B.yaml data_dir=data/hp500 out_dir=...
+env:
+  model_name: Qwen/Qwen3.5-9B
+  renderer_name: qwen3_5_disable_thinking
+  harness: pi
+  max_turns: 20
+  max_tokens: 2048
+
+# Training
+lora_rank: 32
+# The cookbook's Search-R1 recipe uses 4e-5 on Qwen3.5-4B; its calibration table
+# (hyperparam_utils.transfer_lr) moves that to 4.9e-5 for this model
+learning_rate: 5.0e-5
+loss_fn: importance_sampling
+batch_size: 128
+group_size: 8
+max_steps: 120
+eval_every: 20
+save_every: 20
+num_eval_tasks: 500
+
+# Evals: Tinker's prices for this model at 64K context, USD per 1M tokens
+price_prefill: 0.30
+price_cached_prefill: 0.06
+price_sample: 0.807

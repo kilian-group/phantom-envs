@@ -55,7 +55,13 @@ from skyrl.train.generators.utils import (
 )
 from transformers import PreTrainedTokenizerBase
 
-from phantom_envs.terminal.harness import Harness, HarnessRun, ModelEndpoint, run_harness
+from phantom_envs.terminal.harness import (
+    SCORED_STOP_REASONS,
+    Harness,
+    HarnessRun,
+    ModelEndpoint,
+    run_harness,
+)
 from phantom_envs.terminal.pi import PiHarness
 from phantom_envs.terminal.sandbox import Sandbox, open_sandbox
 from phantom_envs.terminal.task import has_answer, verify
@@ -391,9 +397,7 @@ class HarnessGenerator(GeneratorInterface):
                 await loop.run_in_executor(executor, sandbox.close)
 
             scores = verify(answer, extras["reward_spec"]["ground_truth"]["target"], extras["data_source"])
-            # As in SkyRL's generator: a turn cut at its token limit is still verified, and an
-            # episode that outgrew the context scores 0
-            scored = run.stop_reason in ("stop", "length")
+            scored = run.stop_reason in SCORED_STOP_REASONS
             reward = scores[self.terminal_cfg.reward_func] if scored else 0.0
             if run.error:
                 logger.warning(f"A harness episode ended with {run.stop_reason}: {run.error}")

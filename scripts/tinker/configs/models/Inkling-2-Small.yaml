@@ -1,0 +1,34 @@
+# Inkling 2 Small (594B MoE, 17B active) through hosted Tinker: LoRA, with reasoning, in the pi harness.
+#
+#   uv run --extra tinker --env-file .env python scripts/tinker/train.py \
+#       --config scripts/tinker/configs/models/Inkling-2-Small.yaml data_dir=data/envs/pw-rewrite
+#   uv run --extra tinker --env-file .env python scripts/tinker/eval.py \
+#       --config scripts/tinker/configs/models/Inkling-2-Small.yaml data_dir=data/hp500 out_dir=...
+env:
+  model_name: thinkingmachines/Inkling-2-Small
+  renderer_name: tml_v0
+  harness: pi
+  max_turns: 20
+  # Per turn, reasoning included: a smaller budget cuts episodes off mid-thought
+  max_tokens: 8192
+  max_input_length: 32768
+
+# Training
+lora_rank: 32
+# The cookbook's Search-R1 recipe uses 4e-5 on Qwen3.5-4B; its calibration table
+# (hyperparam_utils.transfer_lr) moves that to 5.1e-5 for this model
+learning_rate: 5.0e-5
+# Thinking Machines fine-tuned Inkling with it; Tinker marks it alpha
+# (https://tinker-docs.thinkingmachines.ai/tinker/losses/stable-reinforce/)
+loss_fn: stable_reinforce
+batch_size: 32
+group_size: 8
+max_steps: 50
+eval_every: 10
+save_every: 10
+num_eval_tasks: 500
+
+# Evals: Tinker's prices for this model at 64K context, USD per 1M tokens
+price_prefill: 0.30
+price_cached_prefill: 0.03
+price_sample: 1.00

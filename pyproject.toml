@@ -65,6 +65,16 @@ skyrl = [
     "pyyaml",
     "lm-eval",
 ]
+# RL on the terminal agent in the pi harness through the Tinker API (tinker-cookbook's training loop),
+# hosted by Thinking Machines. Client side only: it needs no GPU. tml-renderers renders the Inkling
+# models, and aiohttp serves a harness its model endpoint
+tinker = [
+    "tinker",
+    "tinker-cookbook",
+    "tml-renderers",
+    "aiohttp>=3.14",
+    "wandb",
+]
 dev = [
     "pre-commit",
     "pytest",
