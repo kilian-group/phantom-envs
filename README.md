@@ -12,18 +12,25 @@ trained in these worlds transfer to real-world multi-hop QA.
   <img src="assets/motivation-penv.png" alt="PhantomEnvironments" width="100%"/>
 </p>
 
+<p align="center">
+  <img src="assets/terminal-agent.gif" alt="Qwen3.5-9B, trained with RL in PhantomEnvironments, answers a question in the pi harness" width="100%"/>
+</p>
+
 Each environment is a fictional universe of people, written out as one article per person, plus
 questions whose answers are computed by Prolog. The agent searches the articles with
 `<search>query</search>`, reads the `<information>` that comes back, and ends with
-`<answer>...</answer>`, rewarded on the final answer. Or, as a coding agent, it searches the articles
-as files with bash and writes its answer to a file.
+`<answer>...</answer>`, rewarded on the final answer. Or, in a terminal with the [pi](https://pi.dev)
+harness, it searches the articles as files with bash in a sandbox and writes its answer to a file.
 
-## New
+## News
 
-- **Nov 2026:** [Train Qwen3.5-9B in a coding agent harness](examples/train_shell_qwen35-9b.sh) to search
+- **2026-Nov-19:** [Train Qwen3.5-9B in the pi harness](examples/train_pi_qwen35-9b.sh), with bash in a
+  sandbox, improving F1 score from 46% to 62% (Qwen4-Max: 69%). On an 8xH100 node, training took 15
+  hours.
+- **2026-Nov-17:** [Train Qwen3.5-9B in a coding agent harness](examples/train_shell_qwen35-9b.sh) to search
   using bash commands, improving F1 score from 50% to 63% (Qwen4-Max: 65%). On an 8xH100 node, training
   took 11 hours.
-- **Nov 2026:** Move to SkyRL Megatron backend support.
+- **2026-Nov-13:** Move to SkyRL Megatron backend support.
   [Train Qwen3-30B-A3B MoE on PhantomWiki](examples/train_pw_qwen3-30b.sh) to improve agentic search
   F1 score from 46% to 56%. On an 8xH100 node, training took 40 hours.
 
@@ -38,6 +45,10 @@ conda create -n swipl -c conda-forge swi-prolog && conda activate swipl
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --extra skyrl   # without --extra skyrl: environment generation only
 cp .env.example .env    # W&B and run dirs
+
+# For the terminal style: bubblewrap, and its sandbox image (built with Docker; then set its path in .env)
+sudo apt-get install -y bubblewrap
+bash scripts/sandbox/build_rootfs.sh <dir>
 ```
 
 ## Quick start
@@ -90,7 +101,7 @@ facts and articles), `corpus.jsonl` (the articles the agent searches) and `tasks
 
 ### 2. Build the retrieval indexes
 
-Do this step for the search agent only. The coding agent does not require building an index.
+Do this step for the Search-R1 style only. The terminal style does not require building an index.
 
 ```bash
 # For training (e5-base-v2)
@@ -124,24 +135,27 @@ bash scripts/skyrl/launch_skyrl.sh train e5 data/envs/pw \
     trainer.seed=2
 ```
 
-#### Coding agent style
+#### Terminal style
 
-Write the shell parquets and pass `shell` in place of the encoder. There is no retriever: each episode
-runs in a [ShellSim](https://pypi.org/project/shellsim/) sandbox (a simulated bash) with the corpus as
-files under `/corpus`, and the agent writes its answer to `/app/output.md`.
-[examples/train_shell_qwen35-9b.sh](examples/train_shell_qwen35-9b.sh) runs it end to end.
+Write the shell parquets and pass `shell` in place of the encoder, with the sandbox and pi settings
+below. There is no retriever: each episode runs pi in its own sandbox, with the articles as files under
+`/corpus`, and the agent writes its answer to `/app/output.md`.
+[examples/train_pi_qwen35-9b.sh](examples/train_pi_qwen35-9b.sh) runs it end to end.
 
 ```bash
 # Set CUDA_HOME in .env so that Qwen3.5 kernels get compiled for fast training
 uv run python scripts/skyrl/prepare_data.py --data_dir data/envs/pw --env shell
 bash scripts/skyrl/launch_skyrl.sh train shell data/envs/pw \
     --config scripts/skyrl/configs/models/Qwen3.5-9B.yaml \
+    environment.skyrl_gym.phantom_shell.sandbox=bwrap \
+    environment.skyrl_gym.phantom_shell.harness=pi \
     trainer.train_batch_size=128 \
     trainer.policy_mini_batch_size=128 \
     trainer.hf_save_interval=40
 ```
 
-The validation F1 score is near 100% by step 150, so the coding agent saturates the training data quickly. Seeing this saturation, we picked the step 120 checkpoint.
+The validation F1 score is near 100% by step 120, so the agent saturates the training data
+quickly; we use the step 120 checkpoint.
 
 ### 4. Evaluate
 
@@ -168,30 +182,30 @@ For your own runs, pass `trainer.policy.model.path=<run>/exports/global_step_<N>
   <br><em>F1 on real-world multi-hop benchmarks over training on Hops.</em>
 </p>
 
-#### Coding agent style
+#### Terminal style
 
-Pass `shell` here too. Evals run on all 8 GPUs (the Qwen3.5-9B config runs 4 vLLM engines with tensor
-parallelism 2):
+Pass `shell` and the same sandbox and pi settings here too. Evals run on all 8 GPUs (the Qwen3.5-9B
+config runs 4 vLLM engines with tensor parallelism 2):
 
 ```bash
 uv run python scripts/skyrl/prepare_data.py --data_dir data/hp500 --env shell
 CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 bash scripts/skyrl/launch_skyrl.sh eval shell data/hp500 \
     --config scripts/skyrl/configs/models/Qwen3.5-9B.yaml \
+    environment.skyrl_gym.phantom_shell.sandbox=bwrap \
+    environment.skyrl_gym.phantom_shell.harness=pi \
     trainer.policy.model.path=<run>/exports/global_step_120/policy \
-    --out_dir=out__eval=hp500__shell
-uv run python scripts/score_trajectories.py --eval_dir out__eval=hp500__shell --data_source hp500
+    --out_dir=out__eval=hp500__pi
+uv run python scripts/score_trajectories.py --eval_dir out__eval=hp500__pi --data_source hp500
 ```
-
-Use 16 GB memory for BrowseComp-Plus because the docs are long: add
-`environment.skyrl_gym.phantom_shell.memory_gib=16`.
 
 ## Repository layout
 
 ```
-src/phantom_envs/              environment generation, the search protocol and reward, scoring, the retriever
+src/phantom_envs/              environment generation, the search and terminal episodes, scoring, the retriever
 scripts/skyrl/                 the SkyRL launcher, entrypoints, configs and data prep
 scripts/benchmarks/            real-world benchmarks as data dirs
 scripts/score_trajectories.py  EM / F1 of dumped eval trajectories
+scripts/sandbox/               the terminal style's sandbox image
 scripts/harbor/                the questions as Harbor tasks, for coding agents like qwen-code in Docker
 scripts/clusters/              running on Cornell's unicorn cluster
 examples/                      end-to-end scripts: data, training and evals in one go
