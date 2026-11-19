@@ -1,14 +1,17 @@
 """Rewrite the template articles as realistic Wikipedia articles with an LLM, keeping their facts.
 
-:func:`~phantom_envs.generator.articles.build_articles` states each person's facts as template sentences
-("The hobby of Ann Smith is chess."). :func:`rewrite_articles` asks a model on OpenRouter, through
-litellm with structured output, to rewrite every article as a realistic Wikipedia article with the same
-facts, leaving the style to the model. :func:`rewrite_problems` checks only the people in each rewrite:
-every related person keeps their exact name and shares a sentence with the relation ("mother",
-"friends", ...), and no one else from the universe appears. Other facts are left to spot checks. A
-failing rewrite is retried with its problems listed, then falls back to the template.
+The generator states each person's facts as template sentences ("The hobby of Ann Smith is chess.").
+A model on OpenRouter, called through litellm with structured output, rewrites every article as a
+Wikipedia article with the same facts, in a style of its own choosing. Each rewrite is checked only for
+its people: every related person keeps their exact name and shares a sentence with the relation
+("mother", "friends", ...), and no one else from the universe appears. Other facts are left to spot
+checks. A rewrite that fails is retried with its problems listed, then falls back to the template.
 
-Needs ``OPENROUTER_API_KEY`` in the environment.
+Needs OPENROUTER_API_KEY in the environment.
+
+Usage::
+
+    articles, stats = rewrite_articles(articles, "openai/gpt-6-luna")
 """
 
 import logging
@@ -37,32 +40,47 @@ SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n")
 
 
 class Rewrite(BaseModel):
-    """The model's structured output."""
+    """The structured output asked of the model."""
 
     article: str = Field(description="The rewritten article in Markdown, starting with its title line.")
 
 
 def parse_facts(facts: list[str]) -> list[tuple[str, str, str]]:
-    """``(relation, subject, value)`` of each Prolog fact, like ``mother("Ann Smith", "Beth Smith").``"""
+    """Split Prolog facts into their parts.
+
+    Args:
+        facts: Facts like ``mother("Ann Smith", "Beth Smith").``
+
+    Returns:
+        ``(relation, subject, value)`` per fact.
+    """
     return [FACT_RE.match(fact).groups() for fact in facts]
 
 
 def names_pattern(names: list[str]) -> re.Pattern:
-    """A pattern that finds any of ``names`` as whole words (longest first)."""
+    """Build a pattern that finds any of the names as whole words.
+
+    Args:
+        names: Everyone in the universe.
+
+    Returns:
+        The pattern; longer names come first, so a name never matches inside a longer one.
+    """
     alternatives = "|".join(re.escape(n) for n in sorted(names, key=len, reverse=True))
     return re.compile(rf"\b(?:{alternatives})\b")
 
 
 def rewrite_problems(article: dict, text: str, people: re.Pattern) -> list[str]:
-    """What a rewrite gets wrong about its template article.
+    """Find what a rewrite gets wrong about the people in its template article.
 
     Args:
         article: The template article, ``{"title", "article", "facts"}``.
         text: The rewrite.
-        people: :func:`names_pattern` over everyone in the universe.
+        people: The pattern from ``names_pattern`` over everyone in the universe.
 
     Returns:
-        One line per problem; empty if the rewrite keeps the title and every relation and adds no one.
+        One line per problem, phrased as feedback for the model. Empty if the rewrite keeps the title and
+        every relation and mentions no one else.
     """
     problems = []
     title = article["title"]
@@ -84,7 +102,15 @@ def rewrite_problems(article: dict, text: str, people: re.Pattern) -> list[str]:
 
 
 def messages(article: dict, problems: list[str] | None) -> list[dict[str, str]]:
-    """The chat messages asking for one article's rewrite, with a failed attempt's problems if any."""
+    """Build the chat messages that ask for one article's rewrite.
+
+    Args:
+        article: The template article, ``{"title", "article", "facts"}``.
+        problems: Problems of the previous attempt, or None on the first.
+
+    Returns:
+        The messages, a single user turn.
+    """
     content = PROMPT.format(title=article["title"], template=article["article"].strip())
     if problems:
         content += FEEDBACK.format(problems="\n".join(f"- {p}" for p in problems))
@@ -94,7 +120,7 @@ def messages(article: dict, problems: list[str] | None) -> list[dict[str, str]]:
 def rewrite_articles(
     articles: list[dict], model: str, workers: int = 32, attempts: int = 3
 ) -> tuple[list[dict], dict[str, int]]:
-    """Rewrite every article with ``model``, in concurrent batches.
+    """Rewrite every article with a model, in concurrent batches.
 
     Args:
         articles: ``{"title", "article", "facts"}`` per person.
@@ -103,8 +129,8 @@ def rewrite_articles(
         attempts: Tries per article before it keeps its template.
 
     Returns:
-        The articles with ``article`` rewritten and the original in ``template``, and counts of rewritten
-        articles and of those that kept their template.
+        The articles, each with its rewrite in ``article`` and the original in ``template``, and the
+        counts of articles rewritten and of those that kept their template.
     """
     # litellm logs every request at INFO
     logging.getLogger("LiteLLM").setLevel(logging.WARNING)

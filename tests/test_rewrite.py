@@ -55,7 +55,14 @@ def test_problems_are_found(text, expected):
 
 
 def fake_batch_completion(texts_per_title):
-    """A stand-in for litellm.batch_completion that answers each article with the next of its texts."""
+    """Build a stand-in for litellm.batch_completion.
+
+    Args:
+        texts_per_title: Per article title, the rewrites to answer with, one per attempt.
+
+    Returns:
+        A function that answers each request with the next rewrite of its article.
+    """
 
     def batch_completion(model, messages, **kwargs):
         responses = []
