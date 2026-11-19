@@ -23,8 +23,8 @@ Gotchas:
 - An episode whose harness fails or runs out of time trains nothing and scores 0; so does one whose
   prompt outgrows the model's context, as in SkyRL's generator. The `generate/harness/*` metrics
   count them.
-- Commands in the sandbox can call the model through the relay too, outside the harness's turn cap;
-  such calls land in the episode's trajectory.
+- Commands in the sandbox can call the model through the relay too, outside the harness's turn cap.
+  Such calls branch off the harness's conversation, which is all that trains (see `harness_path`).
 - Routed experts and sampler support are not captured.
 """
 
@@ -38,6 +38,8 @@ from typing import Any
 from loguru import logger
 from skycap import CapturePool, CaptureService, Sample
 from skycap.exposure import Exposure
+from skycap.graph import MessageGraph
+from skycap.paths import Row
 from skycap.tokens.engine import VLLMEngine
 from skycap.tokens.renderer import RenderersRenderer
 from skyrl.backends.skyrl_train.inference_servers.base import InferenceEngineInterface
@@ -69,6 +71,30 @@ MODEL_NAME: str = "policy"
 CAPTURE_TIMEOUT: float = 600.0
 # Stop reasons of an episode that trains nothing and scores 0
 FAILED: frozenset[str] = frozenset({"error", "timeout"})
+
+
+# The name the capture server knows `harness_path` by
+PATH_RULE: str = "harness"
+
+
+def harness_path(graph: MessageGraph) -> list[Row]:
+    """The path to the harness's last reply, with every model node on it a target.
+
+    An append-only harness extends one conversation, so its last reply is the deepest node a model call
+    made. skycap's `final` rule takes the last reply to return instead, which can be a call that a
+    command in the sandbox made after the harness's last turn. Ties go to the reply that returned last.
+
+    Args:
+        graph: The trajectory's sealed graph.
+
+    Returns:
+        One row, or none if no model call returned.
+    """
+    ends = [(node.depth, call.t_end, node.id) for node in graph for call in node.calls]
+    if not ends:
+        return []
+    path = graph.path_to(max(ends)[2])
+    return [Row(path, [node for node in path if graph.nodes[node].author == "model"])]
 
 
 class HarnessRoutesOnly(Exposure):
@@ -307,6 +333,7 @@ class HarnessGenerator(GeneratorInterface):
             sampling_overrides=sampling_overrides(params),
             host="127.0.0.1",
             exposure=HarnessRoutesOnly(),
+            path_rules={PATH_RULE: harness_path},
         )
         service.start()
         return service
@@ -389,8 +416,8 @@ class HarnessGenerator(GeneratorInterface):
         """Run one episode: sandbox, harness, verifier, and the captured tokens. See `episode`."""
         loop = asyncio.get_running_loop()
         instruction = next(message["content"] for message in prompt if message["role"] == "user")
-        # "final": the conversation the harness ended with, which for an append-only harness is all of it
-        async with pool.trajectory({"data_source": extras["data_source"]}, paths="final") as trajectory:
+        # The conversation the harness ended with, which for an append-only harness is all of it
+        async with pool.trajectory({"data_source": extras["data_source"]}, paths=PATH_RULE) as trajectory:
             endpoint = ModelEndpoint(
                 base_url=trajectory.exposed_base_url,  # the model routes alone (see HarnessRoutesOnly)
                 model=MODEL_NAME,
