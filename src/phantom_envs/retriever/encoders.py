@@ -6,7 +6,10 @@ flat FAISS index per encoder, ``<encoder>_Flat.index``.
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from sentence_transformers import SentenceTransformer
 
 CORPUS_FILENAME = "corpus.jsonl"
 
@@ -61,12 +64,24 @@ def get_encoder(name: str) -> EncoderPreset:
     return ENCODERS[name]
 
 
-def load_encoder(name: str):
-    """Load encoder ``name`` as a SentenceTransformer."""
+def load_encoder(name: str, device: str | None = None) -> "SentenceTransformer":
+    """Load an encoder preset as a SentenceTransformer.
+
+    Args:
+        name: The preset.
+        device: Where to run it, e.g. cpu or cuda:1; it replaces a device the preset loads on. None
+            keeps the preset's own choice, or a GPU if there is one.
+
+    Returns:
+        The encoder.
+    """
     from sentence_transformers import SentenceTransformer
 
     preset = get_encoder(name)
-    return SentenceTransformer(preset.model, **preset.load_kwargs)
+    load_kwargs = dict(preset.load_kwargs)
+    if device is not None and "device_map" in load_kwargs.get("model_kwargs", {}):
+        load_kwargs["model_kwargs"] = {**load_kwargs["model_kwargs"], "device_map": device}
+    return SentenceTransformer(preset.model, device=device, **load_kwargs)
 
 
 def index_path(data_dir: str | Path, encoder: str) -> Path:

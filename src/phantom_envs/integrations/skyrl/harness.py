@@ -19,6 +19,8 @@ Usage (in the entrypoints of `scripts/skyrl`):
 Gotchas:
 
 - A harness needs the bwrap sandbox (`sandbox: bwrap`).
+- With a search tool (`tools: bash+search` or `search`), the agent calls the retrieval MCP server at
+  `mcp_socket`, and the sandbox holds no corpus.
 - An episode whose harness fails or runs out of time trains nothing and scores 0; so does one whose
   prompt outgrows the model's context, as in SkyRL's generator. The `generate/harness/*` metrics
   count them.
@@ -55,16 +57,19 @@ from skyrl.train.generators.utils import (
 )
 from transformers import PreTrainedTokenizerBase
 
+from phantom_envs.retriever.search_tool import SERVER_NAME, TOOL_NAME
 from phantom_envs.terminal.harness import (
     SCORED_STOP_REASONS,
     Harness,
     HarnessRun,
+    McpServer,
     ModelEndpoint,
+    mcp_mounts,
     run_harness,
 )
 from phantom_envs.terminal.pi import PiHarness
 from phantom_envs.terminal.sandbox import Sandbox, open_sandbox
-from phantom_envs.terminal.task import has_answer, verify
+from phantom_envs.terminal.task import BASH, SEARCH, build_instruction, has_answer, has_search, verify
 
 # The model name a harness requests; skycap sends the engine its own name for the policy
 MODEL_NAME: str = "policy"
@@ -132,7 +137,23 @@ class Episode:
         """Tool calls on the episode's path."""
         if self.sample is None:
             return 0
-        return sum(len(message.get("tool_calls") or []) for message in self.sample.messages)
+        return len(self.tool_calls)
+
+    @property
+    def searches(self) -> int:
+        """Calls to an MCP server's tool (the search tool) on the episode's path."""
+        return sum(name.startswith("mcp__") for name in self.tool_calls)
+
+    @property
+    def tool_calls(self) -> list[str]:
+        """The name of each tool the agent called, in order."""
+        if self.sample is None:
+            return []
+        return [
+            call["function"]["name"]
+            for message in self.sample.messages
+            for call in message.get("tool_calls") or []
+        ]
 
 
 def sampling_overrides(params: SamplingParams) -> dict[str, Any]:
@@ -194,7 +215,12 @@ def to_generator_output(
     # SkyRL knows stop and length; a filled context is its "length"
     stop_reasons = ["length" if e.stop_reason == "context_length" else e.stop_reason for e in episodes]
     env_metrics = [
-        {"num_turns": e.turns, "num_commands": e.commands, "answered": float(has_answer(e.answer))}
+        {
+            "num_turns": e.turns,
+            "num_commands": e.commands,
+            "num_searches": e.searches,
+            "answered": float(has_answer(e.answer)),
+        }
         for e in episodes
     ]
     seconds = [episode.seconds for episode in episodes]
@@ -253,6 +279,11 @@ class HarnessGenerator(GeneratorInterface):
             raise ValueError("A harness episode is one row: set generator.step_wise_trajectories=false")
         if engine_cfg.enable_return_routed_experts or engine_cfg.enable_return_sample_support_set:
             raise ValueError("Routed experts and sampler support are not captured with a harness")
+        if has_search(terminal_cfg.tools) and not terminal_cfg.mcp_socket:
+            raise ValueError(
+                "The search tool needs the retrieval MCP server: launch with --search=<retriever>, or set "
+                "environment.skyrl_gym.phantom_terminal.mcp_socket"
+            )
 
         self.cfg = cfg
         self.terminal_cfg = terminal_cfg
@@ -261,7 +292,15 @@ class HarnessGenerator(GeneratorInterface):
         self.max_model_len: int = (engine_cfg.engine_init_kwargs or {}).get("max_model_len") or (
             cfg.generator.max_input_length + cfg.generator.sampling_params.max_generate_length
         )
+        # The search tool comes from the retrieval MCP server; the agent can't tell which retriever
+        self.mcp_servers: list[McpServer] = []
+        if has_search(terminal_cfg.tools):
+            self.mcp_servers = [
+                McpServer(name=SERVER_NAME, socket_path=terminal_cfg.mcp_socket, tools=(TOOL_NAME,))
+            ]
         self.harness: Harness = PiHarness(
+            # Without bash, the agent still has to write its answer file
+            tools=("write",) if terminal_cfg.tools == SEARCH else ("bash",),
             max_turns=cfg.generator.max_turns,
             command_timeout=terminal_cfg.timeout,
             max_output_chars=terminal_cfg.max_output_chars,
@@ -338,6 +377,7 @@ class HarnessGenerator(GeneratorInterface):
             # answer is there only if it was scored, so scoring a dump agrees with the reward.
             extra["num_turns"] = episode.turns
             extra["stop_reason"] = episode.stop_reason
+            extra["num_searches"] = episode.searches
             extra["answer"] = episode.answer
         return to_generator_output(
             list(episodes), input_batch["env_classes"], self.cfg.generator.apply_overlong_filtering
@@ -380,6 +420,9 @@ class HarnessGenerator(GeneratorInterface):
         """Run one episode: sandbox, harness, verifier, and the captured tokens. See `episode`."""
         loop = asyncio.get_running_loop()
         instruction = next(message["content"] for message in prompt if message["role"] == "user")
+        if self.terminal_cfg.tools != BASH:
+            # The dataset's prompt is the bash task; the other tool sets word the task differently
+            instruction = build_instruction(extras["extra_info"]["question"], self.terminal_cfg.tools)
         # "final": the conversation the harness ended with, which for an append-only harness is all of it
         async with pool.trajectory({"data_source": extras["data_source"]}, paths="final") as trajectory:
             endpoint = ModelEndpoint(
@@ -391,7 +434,9 @@ class HarnessGenerator(GeneratorInterface):
             )
             sandbox = await loop.run_in_executor(executor, self.open_sandbox)
             try:
-                run: HarnessRun = await run_harness(self.harness, sandbox, instruction, endpoint, executor)
+                run: HarnessRun = await run_harness(
+                    self.harness, sandbox, instruction, endpoint, executor, self.mcp_servers
+                )
                 answer = await loop.run_in_executor(executor, sandbox.read_answer)
             finally:
                 await loop.run_in_executor(executor, sandbox.close)
@@ -415,10 +460,11 @@ class HarnessGenerator(GeneratorInterface):
         )
 
     def open_sandbox(self) -> Sandbox:
-        """Open a bwrap sandbox over the env's corpus."""
+        """Open a bwrap sandbox: over the env's corpus, or with the search tool's server instead."""
         return open_sandbox(
             "bwrap",
-            self.terminal_cfg.corpus_path,
+            None if has_search(self.terminal_cfg.tools) else self.terminal_cfg.corpus_path,
+            mounts=mcp_mounts(self.mcp_servers),
             timeout=self.terminal_cfg.timeout,
             memory_gib=self.terminal_cfg.memory_gib,
             rootfs=self.terminal_cfg.rootfs,

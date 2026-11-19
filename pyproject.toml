@@ -54,7 +54,12 @@ skyrl = [
     "safetensors",
     "fastapi",
     "uvicorn",
+    # The retrieval MCP server, which serves the terminal agent its search tool
+    "mcp>=2,<3",
     "sentence-transformers",
+    # The BM25 retriever: bm25s scores with numpy and scipy, PyStemmer stems its tokens
+    "bm25s",
+    "PyStemmer",
     "datasets",
     "huggingface_hub",
     "mwparserfromhell",

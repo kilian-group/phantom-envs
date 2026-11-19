@@ -16,6 +16,10 @@ Usage:
         run = await run_harness(harness, sandbox, build_instruction(question), endpoint)
         scores = verify(sandbox.read_answer(), gts, data_source)
 
+The agent's tools can also come from MCP servers on the host, e.g. a search tool over the corpus.
+Each one listens on a Unix socket, which the sandbox is opened with (see `mcp_mounts`), and is
+given to `run_harness` as an `McpServer`.
+
 To add a harness, subclass `Harness` and put its program in the sandbox image.
 """
 
@@ -23,6 +27,7 @@ import asyncio
 import shlex
 import shutil
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from concurrent.futures import Executor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -37,6 +42,21 @@ ENDPOINT_SOCKET: str = "model.sock"
 # Stop reasons of a run whose answer file is scored. As in SkyRL's generator, a turn cut at its token
 # limit is still verified; a run that outgrew the context, failed or ran out of time scores 0.
 SCORED_STOP_REASONS: frozenset[str] = frozenset({"stop", "length"})
+# Where a sandbox sees the sockets of MCP servers, and the first port a harness calls them on
+MCP_SOCKET_DIR: str = "/run/mcp"
+MCP_PORT: int = 8081
+# An MCP client names a server's tool mcp__<server>__<tool>
+MCP_TOOL_PREFIX: str = "mcp__"
+
+
+def mcp_tool_name(server: str, tool: str) -> str:
+    """Return the name an MCP client declares a server's tool under, e.g. mcp__retriever__search."""
+    return f"{MCP_TOOL_PREFIX}{server}__{tool}"
+
+
+def is_mcp_tool(name: str) -> bool:
+    """Whether a tool name is an MCP server's tool, as `mcp_tool_name` names them."""
+    return name.startswith(MCP_TOOL_PREFIX)
 
 
 @dataclass
@@ -52,12 +72,50 @@ class ModelEndpoint:
     max_tokens: int = field(default=2048, metadata={"description": "Most tokens the model writes per turn."})
 
 
+@dataclass(frozen=True)
+class McpServer:
+    """An MCP server on the host whose tools the agent may call."""
+
+    name: str = field(metadata={"description": "The server's name; the agent sees it in tool names."})
+    socket_path: str = field(metadata={"description": "The Unix socket the server listens on."})
+    tools: tuple[str, ...] = field(metadata={"description": "The server's tools the agent gets."})
+    path: str = field(default="/mcp", metadata={"description": "The URL path of its MCP endpoint."})
+
+    @property
+    def sandbox_socket(self) -> str:
+        """Where a sandbox sees the server's socket."""
+        return f"{MCP_SOCKET_DIR}/{self.name}.sock"
+
+    @property
+    def tool_names(self) -> list[str]:
+        """The names an MCP client declares the tools under, e.g. mcp__retriever__search."""
+        return [mcp_tool_name(self.name, tool) for tool in self.tools]
+
+
+def mcp_mounts(mcp_servers: Sequence[McpServer]) -> dict[str, str]:
+    """Return the mounts a sandbox needs to reach MCP servers, for `open_sandbox`.
+
+    Args:
+        mcp_servers: The servers.
+
+    Returns:
+        Each server's socket on the host, by its path inside the sandbox.
+    """
+    return {server.sandbox_socket: server.socket_path for server in mcp_servers}
+
+
+def mcp_url(mcp_servers: Sequence[McpServer], server: McpServer) -> str:
+    """Return a server's MCP endpoint as a harness inside the sandbox calls it."""
+    return f"http://127.0.0.1:{MCP_PORT + mcp_servers.index(server)}{server.path}"
+
+
 @dataclass
 class HarnessRun:
     """What a harness reports about one episode."""
 
     turns: int = field(default=0, metadata={"description": "Model calls the agent made."})
     commands: int = field(default=0, metadata={"description": "Tool calls the agent made."})
+    mcp_calls: int = field(default=0, metadata={"description": "Those that called an MCP server's tool."})
     stop_reason: str = field(
         default="stop",
         metadata={
@@ -74,7 +132,12 @@ class Harness(ABC):
 
     @abstractmethod
     def run(
-        self, sandbox: BwrapSandbox, instruction: str, endpoint_url: str, endpoint: ModelEndpoint
+        self,
+        sandbox: BwrapSandbox,
+        instruction: str,
+        endpoint_url: str,
+        endpoint: ModelEndpoint,
+        mcp_servers: Sequence[McpServer] = (),
     ) -> HarnessRun:
         """Run one episode to its end. Blocks; the agent leaves its answer in the sandbox.
 
@@ -83,28 +146,35 @@ class Harness(ABC):
             instruction: The task, as `task.build_instruction` wrote it.
             endpoint_url: The model API's base URL as the sandbox reaches it.
             endpoint: The model endpoint's settings; its `base_url` is the host's view.
+            mcp_servers: MCP servers whose tools the agent gets; the sandbox mounts their sockets.
 
         Returns:
             What happened.
         """
 
 
-def relay_command(sandbox: BwrapSandbox) -> str:
-    """Return a bash snippet that starts the sandbox side of the endpoint relay and waits for it.
+def relay_command(sandbox: BwrapSandbox, mcp_servers: Sequence[McpServer] = ()) -> str:
+    """Return a bash snippet that starts the sandbox's relays and waits until they listen.
 
-    The relay runs in the background of the harness's command, so the sandbox stops it when that
-    command ends.
+    One relay carries the model endpoint's port to its socket, and one more per MCP server carries
+    that server's port to its mounted socket. They run in the background of the harness's command,
+    so the sandbox stops them when that command ends.
 
     Args:
         sandbox: The sandbox; the relay script is copied into its shared dir.
+        mcp_servers: The MCP servers to relay to.
 
     Returns:
         The snippet, to put before the harness's own command.
     """
     shutil.copy(relay.__file__, sandbox.shared_dir / "relay.py")
-    start = f"python3 {SHARED_DIR}/relay.py {ENDPOINT_PORT} {SHARED_DIR}/{ENDPOINT_SOCKET} &"
-    wait = f"until (exec 3<> /dev/tcp/127.0.0.1/{ENDPOINT_PORT}) 2> /dev/null; do sleep 0.02; done"
-    return f"{start}\n{wait}\n"
+    routes = {ENDPOINT_PORT: f"{SHARED_DIR}/{ENDPOINT_SOCKET}"}
+    routes |= {MCP_PORT + i: server.sandbox_socket for i, server in enumerate(mcp_servers)}
+    lines = [f"python3 {SHARED_DIR}/relay.py {port} {socket} &" for port, socket in routes.items()]
+    lines += [
+        f"until (exec 3<> /dev/tcp/127.0.0.1/{port}) 2> /dev/null; do sleep 0.02; done" for port in routes
+    ]
+    return "\n".join(lines) + "\n"
 
 
 def env_prefix(env: dict[str, str]) -> str:
@@ -118,6 +188,7 @@ async def run_harness(
     instruction: str,
     endpoint: ModelEndpoint,
     executor: Executor | None = None,
+    mcp_servers: Sequence[McpServer] = (),
 ) -> HarnessRun:
     """Run one episode of a harness, with the model endpoint relayed into the sandbox.
 
@@ -127,6 +198,8 @@ async def run_harness(
         instruction: The task text.
         endpoint: The model endpoint, reachable from this process.
         executor: Where the blocking run goes; the event loop's default executor if None.
+        mcp_servers: MCP servers whose tools the agent gets. Open the sandbox with `mcp_mounts` of
+            the same servers.
 
     Returns:
         What the harness reported.
@@ -141,4 +214,6 @@ async def run_harness(
     socket_path = Path(sandbox.shared_dir) / ENDPOINT_SOCKET
     async with relay.serve_socket(socket_path, url.hostname, url.port or 80):
         loop = asyncio.get_running_loop()
-        return await loop.run_in_executor(executor, harness.run, sandbox, instruction, endpoint_url, endpoint)
+        return await loop.run_in_executor(
+            executor, harness.run, sandbox, instruction, endpoint_url, endpoint, tuple(mcp_servers)
+        )

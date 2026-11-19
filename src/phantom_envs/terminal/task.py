@@ -33,17 +33,52 @@ INSTRUCTION: str = (
     "Question: {question}"
 )
 
+# The tools an agent can be given, by the name of the tool set. With a search tool the corpus is not
+# in the sandbox: the agent sees the documents only through the tool, whatever retriever answers it.
+BASH: str = "bash"
+BASH_AND_SEARCH: str = "bash+search"
+SEARCH: str = "search"
+TOOLSETS: tuple[str, ...] = (BASH, BASH_AND_SEARCH, SEARCH)
 
-def build_instruction(question: str) -> str:
+# The instructions name "the search tool", not its full name, which depends on who declares it
+SEARCH_INSTRUCTIONS: dict[str, str] = {
+    BASH_AND_SEARCH: (
+        "Answer the question below using a collection of documents. The documents are not on disk: "
+        "find and read them with the search tool, which returns the documents most relevant to a "
+        "query, and base your answer only on what they say. The bash tool is for everything else, "
+        "such as keeping notes or computing.\n\n"
+        f"Write your final answer to {ANSWER_PATH} as a single line, with multiple answers separated by "
+        f"commas (for example: Alice, Bob). Only {ANSWER_PATH} is graded.\n\n"
+        "Question: {question}"
+    ),
+    SEARCH: (
+        "Answer the question below using a collection of documents. Find and read them with the "
+        "search tool, which returns the documents most relevant to a query, and base your answer only "
+        "on what they say.\n\n"
+        f"Write your final answer to {ANSWER_PATH} with the write tool, as a single line, with multiple "
+        f"answers separated by commas (for example: Alice, Bob). Only {ANSWER_PATH} is graded.\n\n"
+        "Question: {question}"
+    ),
+}
+
+
+def has_search(tools: str) -> bool:
+    """Whether a tool set includes the search tool (so the sandbox holds no corpus)."""
+    return tools in SEARCH_INSTRUCTIONS
+
+
+def build_instruction(question: str, tools: str = BASH) -> str:
     """Return the task text for a question: what to do, and where to write the answer.
 
     Args:
         question: The question to answer.
+        tools: The agent's tool set, one of TOOLSETS.
 
     Returns:
         The instruction, as the user message of an episode or a harness's prompt.
     """
-    return INSTRUCTION.format(question=question)
+    template = SEARCH_INSTRUCTIONS[tools] if has_search(tools) else INSTRUCTION
+    return template.format(question=question)
 
 
 def build_messages(question: str) -> list[dict[str, str]]:

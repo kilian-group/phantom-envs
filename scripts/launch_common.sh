@@ -7,7 +7,7 @@
 #######################################
 # Parse the launcher's arguments, read .env and pick the GPUs.
 # Globals:
-#   Sets REPO, MODE, ENCODER, DATA_DIR, TRAINER_ARGS, RETRIEVER_ARGS, RUN_ID, RAY_TMPDIR,
+#   Sets REPO, MODE, ENCODER, DATA_DIR, TRAINER_ARGS, RETRIEVER_ARGS, SEARCH, RUN_ID, RAY_TMPDIR,
 #   NUM_GPUS (for Ray: CUDA_VISIBLE_DEVICES, else the whole node) and TRAINER_GPUS (for the
 #   trainer; empty for an eval without CUDA_VISIBLE_DEVICES, so eval.yaml's single GPU applies).
 # Arguments:
@@ -44,10 +44,13 @@ launch_setup() {
 
     RETRIEVER_ARGS=()
     TRAINER_ARGS=()
+    # The retriever behind the shell agent's search tool; empty: no search tool
+    SEARCH=""
     local arg
     for arg in "$@"; do
         case $arg in
             retriever.*) RETRIEVER_ARGS+=("${arg#retriever.}") ;;
+            --search=*) SEARCH=${arg#--search=} ;;
             *) TRAINER_ARGS+=("$arg") ;;
         esac
     done
@@ -75,7 +78,7 @@ launch_setup() {
     echo "-------------------------------"
     echo "PhantomEnvs $MODE with $(basename "$0") (run $RUN_ID)"
     echo "  data dir:   $DATA_DIR"
-    echo "  retriever:  $ENCODER ${RETRIEVER_ARGS[*]:-} (log: $RETRIEVER_LOG; none for terminal)"
+    echo "  retriever:  ${SEARCH:-$ENCODER} ${RETRIEVER_ARGS[*]:-} (log: $RETRIEVER_LOG; none for terminal without --search)"
     echo "  GPUs:       $CUDA_VISIBLE_DEVICES (trainer: ${TRAINER_GPUS:-as in the eval config})"
     echo "  args:       ${TRAINER_ARGS[*]:-}"
     echo "-------------------------------"
@@ -102,15 +105,19 @@ cleanup() {
     signal_run TERM
     sleep 5
     signal_run KILL  # Ray's GCS and monitor can outlive SIGTERM
-    rm -rf "$RAY_TMPDIR" "$PORT_FILE"
+    rm -rf "$RAY_TMPDIR" "$PORT_FILE" "${MCP_SOCKET:-}"
 }
 
 #######################################
-# Start the retrieval server over DATA_DIR and wait until it is healthy.
+# Start a retrieval server over DATA_DIR and wait until it is healthy.
 # Globals:
-#   Sets SEARCH_URL.
+#   Sets RETRIEVER_PORT.
+# Arguments:
+#   The server (rest_server or mcp_server), the retriever, and more arguments for the server.
 #######################################
 start_retriever() {
+    local server=$1 retriever=$2
+    shift 2
     # FAISS from the faiss-cpu wheel, or with retriever.faiss_gpu=true (Search-R1's 21M documents)
     # from the conda env in FAISS_GPU_ENV
     local retriever_env=() retriever_uv=(--with faiss-cpu==1.12.0) arg
@@ -127,8 +134,8 @@ start_retriever() {
     done
 
     # port=0: the server picks a free port and writes it to PORT_FILE
-    "${retriever_env[@]}" uv run --no-sync "${retriever_uv[@]}" python -m phantom_envs.retriever.retrieval_server \
-        --encoder "$ENCODER" --data_dir "$DATA_DIR" port=0 "port_file=$PORT_FILE" "${RETRIEVER_ARGS[@]}" \
+    "${retriever_env[@]}" uv run --no-sync "${retriever_uv[@]}" python -m "phantom_envs.retriever.$server" \
+        --retriever "$retriever" --data_dir "$DATA_DIR" port=0 "port_file=$PORT_FILE" "${RETRIEVER_ARGS[@]}" "$@" \
         > "$RETRIEVER_LOG" 2>&1 &
     local pid=$! elapsed
 
@@ -148,8 +155,8 @@ start_retriever() {
         fi
         sleep 2
     done
-    SEARCH_URL="http://127.0.0.1:$(cat "$PORT_FILE")/retrieve"
-    echo "Retrieval server ready at $SEARCH_URL"
+    RETRIEVER_PORT=$(cat "$PORT_FILE")
+    echo "Retrieval server ($server, $retriever) ready on port $RETRIEVER_PORT"
 }
 
 #######################################

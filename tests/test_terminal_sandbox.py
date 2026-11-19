@@ -84,6 +84,12 @@ def test_unknown_backend(corpus_path):
         open_sandbox("docker", corpus_path)
 
 
+@pytest.mark.parametrize("corpus, mounts", [(None, None), ("corpus", {"/run/mcp/r.sock": "/tmp/r.sock"})])
+def test_shellsim_needs_a_corpus_and_takes_no_mounts(corpus_path, corpus, mounts):
+    with pytest.raises(ValueError, match="use bwrap"):
+        open_sandbox("shellsim", corpus and corpus_path, mounts=mounts)
+
+
 def test_bwrap_needs_rootfs(corpus_path):
     with pytest.raises(ValueError, match="root filesystem"):
         open_sandbox("bwrap", corpus_path)

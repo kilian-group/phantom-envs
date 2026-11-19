@@ -54,6 +54,14 @@ def test_episode_without_tokens_keeps_its_row():
 def test_episode_counts_turns_and_commands():
     episode = Episode(stop_reason="stop", sample=captured())
     assert (episode.turns, episode.commands) == (2, 1)
+
+
+def test_episode_counts_searches_apart_from_other_commands():
+    sample = captured()
+    search_call = {"type": "function", "function": {"name": "mcp__retriever__search", "arguments": "{}"}}
+    sample.messages[1]["tool_calls"] = [BASH_CALL, search_call]
+    episode = Episode(stop_reason="stop", sample=sample)
+    assert (episode.commands, episode.searches) == (2, 1)
     assert (Episode(stop_reason="error").turns, Episode(stop_reason="error").commands) == (0, 0)
 
 
@@ -75,7 +83,12 @@ class TestGeneratorOutput:
         assert output["rewards"] == [1.0, 0.0, 0.0]
         assert output["stop_reasons"] == ["stop", "length", "error"]
         assert [len(p) for p in output["prompt_token_ids"]] == [3, 5, 1]
-        assert output["env_metrics"][0] == {"num_turns": 2, "num_commands": 1, "answered": 1.0}
+        assert output["env_metrics"][0] == {
+            "num_turns": 2,
+            "num_commands": 1,
+            "num_searches": 0,
+            "answered": 1.0,
+        }
 
     def test_metrics_count_what_went_wrong(self):
         metrics = to_generator_output(self.episodes(), ["phantom_terminal"] * 3)["rollout_metrics"]
