@@ -34,6 +34,9 @@ from phantom_envs.terminal.bwrap import SHARED_DIR, BwrapSandbox
 # The port a harness calls inside the sandbox, and the socket (in the shared dir) behind it
 ENDPOINT_PORT: int = 8080
 ENDPOINT_SOCKET: str = "model.sock"
+# Stop reasons of a run whose answer file is scored. As in SkyRL's generator, a turn cut at its token
+# limit is still verified; a run that outgrew the context, failed or ran out of time scores 0.
+SCORED_STOP_REASONS: frozenset[str] = frozenset({"stop", "length"})
 
 
 @dataclass
