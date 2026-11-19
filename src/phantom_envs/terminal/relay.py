@@ -5,8 +5,8 @@ two hops over a Unix socket in that directory:
 
     harness -> 127.0.0.1:<port>  (inside)  -> socket -> (host) -> the model endpoint
 
-The host side is :func:`serve_socket`. The sandbox side is this file run as a script by the
-sandbox's own Python, so it uses only the standard library::
+The host side is `serve_socket`. The sandbox side is this file run as a script by the sandbox's
+own Python, so it uses only the standard library:
 
     python3 relay.py <port> <socket path>
 """
@@ -19,7 +19,7 @@ from pathlib import Path
 
 
 async def pipe(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
-    """Copy bytes from ``reader`` to ``writer`` until either side closes."""
+    """Copy bytes from `reader` to `writer` until either side closes."""
     try:
         while data := await reader.read(65536):
             writer.write(data)
@@ -45,12 +45,13 @@ async def serve_socket(socket_path: str | Path, host: str, port: int) -> AsyncIt
     """Relay connections to a Unix socket on to a TCP endpoint, while the context is open.
 
     Args:
-        socket_path: Where to create the socket. Unix socket paths hold at most ~100 characters.
+        socket_path: Where to create the socket. Keep it short: Unix socket paths have a small
+            length limit.
         host: The endpoint's host.
         port: The endpoint's port.
 
     Yields:
-        Nothing; the socket accepts connections inside the ``async with`` block.
+        Nothing; the socket accepts connections inside the `async with` block.
     """
 
     async def accept(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
@@ -70,7 +71,7 @@ async def serve_socket(socket_path: str | Path, host: str, port: int) -> AsyncIt
 
 
 async def serve_port(port: int, socket_path: str) -> None:
-    """Relay connections to ``127.0.0.1:port`` on to a Unix socket, forever.
+    """Relay connections to `127.0.0.1:port` on to a Unix socket, forever.
 
     Args:
         port: The local port to listen on.

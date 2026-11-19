@@ -17,6 +17,7 @@ import time
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -88,7 +89,7 @@ def test_bwrap_needs_rootfs(corpus_path):
 
 
 def require_backend(backend: str) -> None:
-    """Skip the test if this machine can't run ``backend``."""
+    """Skip the test if this machine can't run `backend`."""
     if backend == "shellsim":
         pytest.importorskip("shellsim")
     elif shutil.which("bwrap") is None or not os.environ.get("SANDBOX_ROOTFS"):
@@ -97,11 +98,11 @@ def require_backend(backend: str) -> None:
 
 @pytest.fixture
 def make_sandbox(request: pytest.FixtureRequest, corpus_path: Path) -> Iterator[Callable[..., Sandbox]]:
-    """A factory of sandboxes over the test corpus, on the backend in ``request.param``."""
+    """A factory of sandboxes over the test corpus, on the backend in `request.param`."""
     require_backend(request.param)
     sandboxes: list[Sandbox] = []
 
-    def make(**kwargs) -> Sandbox:
+    def make(**kwargs: Any) -> Sandbox:
         sandbox = open_sandbox(request.param, corpus_path, rootfs=os.environ.get("SANDBOX_ROOTFS"), **kwargs)
         sandboxes.append(sandbox)
         return sandbox
@@ -231,8 +232,9 @@ def test_bwrap_sandbox_ends_with_its_host_process(corpus_path):
         "import os, sys\n"
         "from concurrent.futures import ThreadPoolExecutor\n"
         "from phantom_envs.terminal.sandbox import open_sandbox\n"
+        "rootfs = os.environ['SANDBOX_ROOTFS']\n"
         "with ThreadPoolExecutor(max_workers=1) as executor:\n"
-        "    sandbox = executor.submit(open_sandbox, 'bwrap', sys.argv[1], 600, 4, os.environ['SANDBOX_ROOTFS']).result()\n"
+        "    sandbox = executor.submit(open_sandbox, 'bwrap', sys.argv[1], timeout=600, rootfs=rootfs).result()\n"
         "sandbox.run(sys.argv[2])\n"
     )
     host = subprocess.Popen([sys.executable, "-c", host_code, str(corpus_path), shlex.join(sleep)])

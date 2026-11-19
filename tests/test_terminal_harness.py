@@ -10,18 +10,22 @@ import json
 import os
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from phantom_envs.terminal import relay
 from phantom_envs.terminal.bwrap import MAX_FILE_MIB
-from phantom_envs.terminal.harness import ENDPOINT_PORT, ModelEndpoint, env_prefix, run_harness
+from phantom_envs.terminal.harness import ENDPOINT_PORT, HarnessRun, ModelEndpoint, env_prefix, run_harness
 from phantom_envs.terminal.pi import PiHarness, parse_events
 from phantom_envs.terminal.task import ANSWER_PATH, build_instruction
 
+if TYPE_CHECKING:
+    import aiohttp.web
+
 
 def turn_end(stop_reason: str, tool_results: int = 0, error: str | None = None) -> str:
-    """One ``turn_end`` line of pi's JSON event stream."""
+    """One turn_end line of pi's JSON event stream."""
     message = {"role": "assistant", "stopReason": stop_reason}
     if error:
         message["errorMessage"] = error
@@ -97,7 +101,7 @@ def test_relay_round_trip(tmp_path: Path):
     assert asyncio.run(round_trip()) == b"HELLO\n"
 
 
-def chunk(delta: dict, finish_reason: str | None = None) -> bytes:
+def chunk(delta: dict[str, Any], finish_reason: str | None = None) -> bytes:
     """One server-sent event of a streamed chat completion."""
     choice = {"index": 0, "delta": delta, "finish_reason": finish_reason}
     body = {"id": "c", "object": "chat.completion.chunk", "model": "policy", "choices": [choice]}
@@ -109,9 +113,10 @@ class ScriptedModel:
 
     def __init__(self, commands: list[str]) -> None:
         self.commands = commands
-        self.requests: list[dict] = []
+        self.requests: list[dict[str, Any]] = []
 
-    async def complete(self, request):
+    async def complete(self, request: "aiohttp.web.Request") -> "aiohttp.web.StreamResponse":
+        """Answer a chat request with the next scripted turn, streamed."""
         from aiohttp import web
 
         body = await request.json()
@@ -130,7 +135,7 @@ class ScriptedModel:
         await response.write(b"data: [DONE]\n\n")
         return response
 
-    async def play(self, harness: PiHarness, corpus_path: Path) -> tuple:
+    async def play(self, harness: PiHarness, corpus_path: Path) -> tuple[HarnessRun, str | None]:
         """Run one pi episode against this model; return the harness's report and the answer file."""
         from aiohttp import web
 

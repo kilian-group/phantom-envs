@@ -1,7 +1,7 @@
-"""The ``phantom_search`` SkyRL-Gym environment: a search agent with a retriever.
+"""The `phantom_search` SkyRL-Gym environment: a search agent with a retriever.
 
-:class:`~phantom_envs.search.protocol.SearchProtocol` decides when the episode ends, what to search
-and the reward; :class:`~phantom_envs.retriever.client.SearchClient` runs the searches over HTTP.
+`SearchProtocol` decides when the episode ends, what to search and the reward; `SearchClient` runs
+the searches over HTTP.
 """
 
 from dataclasses import dataclass, field
@@ -35,9 +35,9 @@ class PhantomSearchEnv(BaseTextEnv):
         """Set up one episode.
 
         Args:
-            env_config: The ``environment.skyrl_gym.phantom_search`` config.
-            extras: The dataset row's fields: ``reward_spec.ground_truth.target`` (the gold answers),
-                ``data_source`` and ``max_turns``.
+            env_config: The `environment.skyrl_gym.phantom_search` config.
+            extras: The dataset row's fields: `reward_spec.ground_truth.target` (the gold answers),
+                `data_source` and `max_turns`.
         """
         super().__init__()
 

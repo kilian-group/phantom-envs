@@ -1,11 +1,11 @@
 """The bare tool loop of a shell episode, with no I/O, for trainers that sample the agent's turns.
 
-The agent calls a ``bash`` tool in Qwen3.5's tool-call format (``<tool_call><function=bash>
-<parameter=command>``) and gets each command's output back as a tool response. The attempt ends on
-a turn without tool calls, or after ``max_turns`` turns; then the verifier
-(:func:`phantom_envs.terminal.task.verify`) scores the answer file.
+The agent calls a `bash` tool in Qwen3.5's tool-call format (`<tool_call><function=bash>
+<parameter=command>`) and gets each command's output back as a tool response. The attempt ends on a
+turn without tool calls, or after `max_turns` turns; then the verifier (`task.verify`) scores the
+answer file.
 
-Trainer adapters drive :class:`ShellProtocol` and run the commands in a sandbox::
+Trainer adapters drive `ShellProtocol` and run the commands in a sandbox:
 
     protocol = ShellProtocol(max_turns=20)
     state = ShellEpisodeState()
@@ -22,6 +22,7 @@ A coding-agent harness such as pi replaces this module: it runs its own loop ins
 import re
 from dataclasses import dataclass, field
 
+# A Qwen3.5 tool call, and each parameter inside it
 TOOL_CALL_RE = re.compile(r"<tool_call>\s*<function=([^>\s]+)>(.*?)</function>\s*</tool_call>", re.DOTALL)
 PARAMETER_RE = re.compile(r"<parameter=([^>\s]+)>\n?(.*?)\n?</parameter>", re.DOTALL)
 
@@ -66,14 +67,14 @@ def tool_error(call: ToolCall) -> str | None:
 
 
 def truncate(text: str, max_chars: int) -> str:
-    """Cut a tool output to ``max_chars`` characters.
+    """Cut a tool output to `max_chars` characters.
 
     Args:
         text: The tool output.
         max_chars: The most characters to keep.
 
     Returns:
-        ``text`` if it fits; otherwise its start, with a note on how much was left out.
+        The text if it fits; otherwise its start, with a note on how much was left out.
     """
     if len(text) <= max_chars:
         return text
@@ -132,6 +133,6 @@ class ShellProtocol:
             outputs: The output of each tool call of the turn, in order.
 
         Returns:
-            The tool responses, each cut to ``max_output_chars``.
+            The tool responses, each cut to `max_output_chars`.
         """
         return [truncate(output, self.max_output_chars) for output in outputs]

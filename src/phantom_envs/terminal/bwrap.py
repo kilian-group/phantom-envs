@@ -1,29 +1,30 @@
 """The bubblewrap sandbox: real processes over a pinned root filesystem, with no network.
 
-`bubblewrap <https://github.com/containers/bubblewrap>`_ (``bwrap``) starts a process in fresh Linux
-namespaces without root. Starting one costs ~20 ms and is serialized kernel-wide, so a sandbox
-starts once per episode: a small bash loop inside it then runs each command in a fresh bash.
+bubblewrap (`bwrap`, https://github.com/containers/bubblewrap) starts a process in fresh Linux
+namespaces without root. Starting one is slow next to running a command, and serialized
+kernel-wide, so a sandbox starts once per episode: a small bash loop inside it then runs each
+command in a fresh bash.
 
 What a command sees:
 
-- ``/usr`` and ``/etc`` of the image that ``scripts/sandbox/build_rootfs.sh`` exported, read-only;
-- the corpus under ``/corpus``, read-only;
-- ``/app`` (the working dir), ``/tmp`` and its home dir, each an empty in-memory filesystem with a
+- `/usr` and `/etc` of the image that `scripts/sandbox/build_rootfs.sh` exported, read-only;
+- the corpus under `/corpus`, read-only;
+- `/app` (the working dir), `/tmp` and its home dir, each an empty in-memory filesystem with a
   size cap;
 - no network and no host files.
 
 Limits: a wall-clock timeout per command, and per-process caps on address space, file size and the
 number of processes. These bound each process, not the sandbox's total memory; a hard cap on that
-needs a cgroup.
+needs a cgroup. A sandbox ends with the process that started it.
 
-Usage::
+Usage:
 
     with BwrapSandbox("data/envs/pw/shell/corpus", rootfs="/path/to/rootfs") as sandbox:
         sandbox.run("grep -l 'Ann Lee' /corpus/*.md")
         answer = sandbox.read_answer()
 
 A harness that runs inside the sandbox shares files and sockets with it through
-:attr:`BwrapSandbox.shared_dir`, which commands see as :data:`SHARED_DIR`.
+`BwrapSandbox.shared_dir`, which commands see as `SHARED_DIR`.
 """
 
 import json
@@ -36,6 +37,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 from phantom_envs.terminal.sandbox import Sandbox, format_output
 from phantom_envs.terminal.task import ANSWER_PATH, CORPUS_DIR, WORK_DIR
@@ -44,6 +46,7 @@ from phantom_envs.terminal.task import ANSWER_PATH, CORPUS_DIR, WORK_DIR
 HOME_DIR: str = "/root"
 # Where commands see the sandbox's shared_dir
 SHARED_DIR: str = "/run/sandbox"
+# The PATH of commands; the rest of the host's environment is cleared
 PATH: str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # Largest file a command may write by default, in MiB
@@ -78,7 +81,7 @@ _spawner_pid: int | None = None
 _spawner_lock = threading.Lock()
 
 
-def start_process(argv: list[str], **popen_kwargs) -> subprocess.Popen:
+def start_process(argv: list[str], **popen_kwargs: Any) -> subprocess.Popen:
     """Start a process from a thread that lives as long as this process.
 
     Args:
@@ -113,17 +116,17 @@ class BwrapSandbox(Sandbox):
         """Start the sandbox.
 
         Args:
-            corpus_dir: The corpus as files (see :func:`~phantom_envs.terminal.corpus_files.write_corpus_dir`).
-            rootfs: The root filesystem that ``scripts/sandbox/build_rootfs.sh`` exported.
+            corpus_dir: The corpus as files (see `corpus_files.write_corpus_dir`).
+            rootfs: The root filesystem that `scripts/sandbox/build_rootfs.sh` exported.
             timeout: Wall-clock limit per command, in seconds.
             memory_gib: Address-space limit of each process, in GiB.
-            scratch_mib: Size of each of ``/app``, ``/tmp`` and the home dir, in MiB.
+            scratch_mib: Size of each of `/app`, `/tmp` and the home dir, in MiB.
             max_file_mib: Largest file a command may write, in MiB. A command's output counts.
             max_processes: Most processes the sandbox may hold at once.
 
         Raises:
-            FileNotFoundError: If ``bwrap`` is not installed, ``rootfs`` is not an exported image, or
-                ``corpus_dir`` does not exist.
+            FileNotFoundError: If `bwrap` is not installed, `rootfs` is not an exported image, or
+                `corpus_dir` does not exist.
             RuntimeError: If the sandbox fails to start.
         """
         rootfs = Path(rootfs)
@@ -226,7 +229,7 @@ class BwrapSandbox(Sandbox):
             return output, exit_code, timed_out
 
     def run(self, command: str) -> str:
-        """Run one bash command in ``/app``.
+        """Run one bash command in `/app`.
 
         Args:
             command: The command.
@@ -243,7 +246,7 @@ class BwrapSandbox(Sandbox):
         """Read the answer file, for the verifier.
 
         Returns:
-            The contents of ``/app/output.md``, or None if the agent wrote none.
+            The contents of `/app/output.md`, or None if the agent wrote none.
         """
         output, exit_code, _ = self.execute(f"cat {ANSWER_PATH}")
         return output if exit_code == 0 else None

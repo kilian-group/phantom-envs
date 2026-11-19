@@ -1,10 +1,10 @@
 """The shell task: where the agent works, what it is asked, and how its answer is verified.
 
 These are the parts of a shell episode that every sandbox and every agent loop share. The agent
-finds the documents under :data:`CORPUS_DIR`, works in :data:`WORK_DIR`, and writes its final answer
-to :data:`ANSWER_PATH`; :func:`verify` scores what it wrote.
+finds the documents under `CORPUS_DIR`, works in `WORK_DIR`, and writes its final answer to
+`ANSWER_PATH`; `verify` scores what it wrote.
 
-Usage::
+Usage:
 
     messages = build_messages("Who is the mother of Ann Lee?")
     ...  # the agent runs commands in a sandbox
@@ -13,15 +13,18 @@ Usage::
 
 from phantom_envs.scoring import METRICS, score
 
+# The corpus, one read-only file per document
 CORPUS_DIR: str = "/corpus"
+# The agent's working dir
 WORK_DIR: str = "/app"
+# The file the verifier grades
 ANSWER_FILE: str = "output.md"
 ANSWER_PATH: str = f"{WORK_DIR}/{ANSWER_FILE}"
 
 SYSTEM_PROMPT: str = "You are a helpful assistant."
 
-# As in a Harbor task's instruction.md, the user message holds the whole task. In the system message,
-# base Qwen3.5-9B wrote the answer file in 2 of 16 runs; in the user message, in 15 of 16.
+# As in a Harbor task's instruction.md, the user message holds the whole task: models follow the
+# answer-file instruction far more reliably there than in the system message.
 INSTRUCTION: str = (
     f"Answer the question below using the documents in {CORPUS_DIR}, one file per document. "
     "Search and read them with the bash tool, and base your answer only on what they say.\n\n"
@@ -32,7 +35,7 @@ INSTRUCTION: str = (
 
 
 def build_instruction(question: str) -> str:
-    """Return the task text for ``question``: what to do, and where to write the answer.
+    """Return the task text for a question: what to do, and where to write the answer.
 
     Args:
         question: The question to answer.

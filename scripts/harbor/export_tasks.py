@@ -12,7 +12,7 @@ episode's user message), the corpus as the same files under ``/corpus``, and the
         task.toml                                     the agent may reach only the model API host
         tests/{test.sh, score.py, scoring.py, gold.json}   F1 -> /logs/verifier/reward.txt
 
-Every task uses the sandbox image of ``scripts/sandbox/Dockerfile``; build it once first.
+Every task uses the sandbox image of `scripts/sandbox/Dockerfile`; build it once first.
 
 Usage:
     uv run python scripts/harbor/export_tasks.py --data_dir data/frames

@@ -2,6 +2,7 @@
 
 SYSTEM_PROMPT: str = "You are a helpful and harmless assistant."
 
+# The user message, before the question
 USER_PROMPT_PREFIX: str = (
     "Answer the given question using the search tool to retrieve relevant information. "
     "Follow this process:\n"

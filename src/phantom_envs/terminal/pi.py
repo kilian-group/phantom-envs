@@ -1,17 +1,18 @@
-"""The pi harness: `pi <https://pi.dev>`_, a minimal open-source coding agent, as the agent's loop.
+"""The pi harness: pi (https://pi.dev), a minimal open-source coding agent, as the agent's loop.
 
-pi runs inside the sandbox with one tool, ``bash``, and its own system prompt. It keeps its history
+pi runs inside the sandbox with one tool, `bash`, and its own system prompt. It keeps its history
 append-only (compaction is off), so every model call extends the previous one's tokens. The episode's
 budgets match the bare tool loop's: a turn cap, a time limit per command, and a cap on the output
-the model reads. pi has settings for some; ``pi_extension.js`` enforces the rest.
+the model reads. pi has settings for some; `pi_extension.js` enforces the rest. Each command pi
+starts gets the sandbox's per-process limits.
 
-The sandbox image has pi installed (``scripts/sandbox/Dockerfile`` pins its version).
+The sandbox image has pi installed (`scripts/sandbox/Dockerfile` pins its version).
 
 Gotchas:
 
 - pi runs a turn's commands before the turn cap ends the episode; the bare loop doesn't run the
   commands of its last turn.
-- pi cuts a long output to its last 50 KB before ``max_output_chars`` keeps the head of that.
+- pi keeps only the tail of a long output, and then `max_output_chars` keeps the head of that.
 """
 
 import json
@@ -19,13 +20,16 @@ import shlex
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from phantom_envs.terminal.bwrap import SHARED_DIR, BwrapSandbox
 from phantom_envs.terminal.harness import Harness, HarnessRun, ModelEndpoint, env_prefix, relay_command
 
+# Enforces the budgets that pi has no setting for
 EXTENSION: Path = Path(__file__).with_name("pi_extension.js")
 # pi's config dir inside the sandbox, a subdir of the shared dir
 CONFIG_DIR: str = "pi"
+# The name pi's config gives the model endpoint
 PROVIDER: str = "phantom"
 # How skycap and vLLM word a prompt that doesn't fit the model's context
 CONTEXT_ERRORS: tuple[str, ...] = ("context_length_exceeded", "max_model_len", "maximum context length")
@@ -105,7 +109,15 @@ class PiHarness(Harness):
         shutil.copy(EXTENSION, config_dir / EXTENSION.name)
 
     def command(self, instruction: str, model: str) -> str:
-        """Return the bash command that runs pi once on ``instruction`` and prints its events as JSONL."""
+        """Return the bash command that runs pi once on a task and prints its events as JSONL.
+
+        Args:
+            instruction: The task text, given to pi as its prompt.
+            model: The model name pi requests.
+
+        Returns:
+            The command, with pi's environment in front.
+        """
         config_dir = f"{SHARED_DIR}/{CONFIG_DIR}"
         env = {
             "PI_CODING_AGENT_DIR": config_dir,
@@ -133,15 +145,15 @@ def parse_events(output: str) -> HarnessRun:
     """Summarize pi's JSONL event stream.
 
     Args:
-        output: pi's stdout in ``--mode json``; lines that aren't JSON events are skipped.
+        output: pi's stdout in `--mode json`; lines that aren't JSON events are skipped.
 
     Returns:
         The turns and commands so far, and the stop reason of the last assistant message:
-        ``context_length`` when the prompt outgrew the model's context, ``length`` when a turn hit
-        its token limit, ``error`` on another failure, else ``stop``.
+        `context_length` when the prompt outgrew the model's context, `length` when a turn hit its
+        token limit, `error` on another failure, else `stop`.
     """
     run = HarnessRun()
-    last_message: dict = {}
+    last_message: dict[str, Any] = {}
     for line in output.splitlines():
         try:
             event = json.loads(line)

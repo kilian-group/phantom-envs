@@ -1,9 +1,9 @@
-"""A corpus as files: one markdown file per document of ``corpus.jsonl``.
+"""A corpus as files: one markdown file per document of `corpus.jsonl`.
 
-Every sandbox serves the same files under ``/corpus``, so an agent sees the same names and contents
+Every sandbox serves the same files under `/corpus`, so an agent sees the same names and contents
 whichever backend runs its commands.
 
-Usage::
+Usage:
 
     for name, text in corpus_files("data/envs/pw/corpus.jsonl"):
         ...  # e.g. ("Ann_Lee.md", "# Ann Lee\\n\\nThe mother of Ann Lee is ...")
@@ -32,7 +32,7 @@ def doc_filename(title: str, taken: set[str]) -> str:
         taken: File names already used. The new name is added to it.
 
     Returns:
-        A name ending in ``.md`` that is not in ``taken``; repeated titles get a numeric suffix.
+        A name ending in `.md` that is not in `taken`; repeated titles get a numeric suffix.
     """
     stem = re.sub(r"[^\w.,()'-]+", "_", title).strip("_")[:120] or "untitled"
     name, i = f"{stem}.md", 2
@@ -50,7 +50,7 @@ def doc_text(title: str, contents: str) -> str:
         contents: The document's text. PhantomEnvs articles already start with a title line.
 
     Returns:
-        The file contents, cut to :data:`MAX_DOC_BYTES`.
+        The file contents, cut to `MAX_DOC_BYTES`.
     """
     text = contents if contents.startswith("# ") else f"# {title}\n\n{contents}"
     data = text.encode()
@@ -63,10 +63,10 @@ def corpus_files(corpus_path: str | Path) -> Iterator[tuple[str, str]]:
     """Yield each document of a corpus as a file.
 
     Args:
-        corpus_path: A ``corpus.jsonl`` with one ``{"title", "contents"}`` document per line.
+        corpus_path: A `corpus.jsonl` with one `{"title", "contents"}` document per line.
 
     Yields:
-        ``(file name, file contents)`` per document, in corpus order.
+        (file name, file contents) per document, in corpus order.
     """
     taken: set[str] = set()
     with open(corpus_path) as f:
@@ -76,25 +76,33 @@ def corpus_files(corpus_path: str | Path) -> Iterator[tuple[str, str]]:
 
 
 def corpus_dir_path(corpus_path: str | Path) -> Path:
-    """Return where a corpus lives as files: ``shell/corpus/`` next to its ``corpus.jsonl``."""
+    """Return where a corpus lives as files: `shell/corpus/` next to its `corpus.jsonl`.
+
+    Args:
+        corpus_path: The corpus's `corpus.jsonl`.
+
+    Returns:
+        The corpus dir's path, whether or not it exists yet.
+    """
     return Path(corpus_path).resolve().parent / "shell" / "corpus"
 
 
+# Serializes this process's writers; the rename in write_corpus_dir handles other processes
 _write_lock = threading.Lock()
 
 
 def write_corpus_dir(corpus_path: str | Path) -> Path:
-    """Write a corpus as files next to its ``corpus.jsonl``, unless they are already there.
+    """Write a corpus as files next to its `corpus.jsonl`, unless they are already there.
 
     Safe to call from many threads and processes at once: the files are written to a temporary dir
     and renamed into place, so a reader never sees a partial corpus.
 
     Args:
-        corpus_path: The ``corpus.jsonl`` to write out.
+        corpus_path: The `corpus.jsonl` to write out.
 
     Returns:
-        The corpus dir (see :func:`corpus_dir_path`). An existing dir is kept as is, so delete it
-        after changing ``corpus.jsonl``.
+        The corpus dir (see `corpus_dir_path`). An existing dir is kept as is, so delete it after
+        changing `corpus.jsonl`.
     """
     out_dir = corpus_dir_path(corpus_path)
     with _write_lock:

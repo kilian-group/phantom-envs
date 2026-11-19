@@ -2,20 +2,20 @@
 
 Every backend keeps the same contract, so an episode behaves the same on any of them:
 
-- The corpus is under ``/corpus``, one file per document.
-- Each command runs in a fresh bash in ``/app``. Files persist between commands; the working
+- The corpus is under `/corpus`, one file per document.
+- Each command runs in a fresh bash in `/app`. Files persist between commands; the working
   directory and shell variables don't.
 - A command's output is its stdout and stderr, with a note when it timed out or failed.
-- The agent's answer is the file ``/app/output.md``.
+- The agent's answer is the file `/app/output.md`.
 
 Backends:
 
-- ``shellsim`` (:mod:`phantom_envs.terminal.shellsim`): an in-process simulated bash. No setup, and no
-  real programs: only ShellSim's own grep, sed, awk and so on.
-- ``bwrap`` (:mod:`phantom_envs.terminal.bwrap`): real processes in a bubblewrap sandbox over a pinned
-  root filesystem. Runs anything the image has, including a coding-agent harness.
+- `shellsim` (see `shellsim.py`): an in-process simulated bash. No setup, and no real programs:
+  only ShellSim's own grep, sed, awk and so on.
+- `bwrap` (see `bwrap.py`): real processes in a bubblewrap sandbox over a pinned root filesystem.
+  Runs anything the image has, including a coding-agent harness.
 
-Usage::
+Usage:
 
     with open_sandbox("shellsim", "data/envs/pw/corpus.jsonl") as sandbox:
         sandbox.run("grep -l 'Ann Lee' /corpus/*.md")
@@ -27,6 +27,7 @@ from pathlib import Path
 from types import TracebackType
 from typing import Self
 
+# The backends open_sandbox can create
 BACKENDS: tuple[str, ...] = ("shellsim", "bwrap")
 
 
@@ -35,7 +36,7 @@ class Sandbox(ABC):
 
     @abstractmethod
     def run(self, command: str) -> str:
-        """Run one bash command in ``/app``.
+        """Run one bash command in `/app`.
 
         Args:
             command: The command.
@@ -49,7 +50,7 @@ class Sandbox(ABC):
         """Read the answer file, for the verifier.
 
         Returns:
-            The contents of ``/app/output.md``, or None if the agent wrote none.
+            The contents of `/app/output.md`, or None if the agent wrote none.
         """
 
     def close(self) -> None:  # noqa: B027 (optional hook)
@@ -95,14 +96,14 @@ def open_sandbox(
     """Create a sandbox over a corpus.
 
     A process's first sandbox over a corpus prepares it (ShellSim loads it into memory; bwrap writes
-    it as files next to ``corpus.jsonl``, once), which takes ~20 s for BrowseComp-Plus.
+    it as files next to `corpus.jsonl`, once), which takes a while for a large corpus.
 
     Args:
-        backend: ``shellsim`` or ``bwrap``.
-        corpus_path: The ``corpus.jsonl`` to serve under ``/corpus``.
+        backend: `shellsim` or `bwrap`.
+        corpus_path: The `corpus.jsonl` to serve under `/corpus`.
         timeout: Wall-clock limit per command, in seconds.
         memory_gib: Memory limit in GiB: of the whole machine for ShellSim, of each process for bwrap.
-        rootfs: For bwrap, the root filesystem that ``scripts/sandbox/build_rootfs.sh`` exported.
+        rootfs: For bwrap, the root filesystem that `scripts/sandbox/build_rootfs.sh` exported.
 
     Returns:
         The sandbox.

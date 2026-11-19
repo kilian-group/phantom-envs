@@ -1,14 +1,14 @@
 """Coding-agent harnesses: programs that run the agent's loop inside the sandbox.
 
-Without a harness, a trainer samples each turn itself and :mod:`phantom_envs.terminal.loop` decides what
-to run. A harness such as pi takes that loop over: it gets the task as its prompt, calls the model
-through an OpenAI-compatible endpoint, runs the model's commands itself, and exits when the agent is
-done. The verifier then reads the answer file, as in every shell episode.
+Without a harness, a trainer samples each turn itself and `loop` decides what to run. A harness such
+as pi takes that loop over: it gets the task as its prompt, calls the model through an
+OpenAI-compatible endpoint, runs the model's commands itself, and exits when the agent is done. The
+verifier then reads the answer file, as in every shell episode.
 
 A harness needs real processes, so it runs in the bwrap sandbox. The sandbox has no network; the
-model endpoint reaches it through a relay over a Unix socket (:mod:`phantom_envs.terminal.relay`).
+model endpoint reaches it through a relay over a Unix socket (see `relay`).
 
-Usage::
+Usage:
 
     harness = PiHarness(max_turns=20)
     endpoint = ModelEndpoint(base_url="http://127.0.0.1:8000/v1", model="policy")
@@ -16,7 +16,7 @@ Usage::
         run = await run_harness(harness, sandbox, build_instruction(question), endpoint)
         scores = verify(sandbox.read_answer(), gts, data_source)
 
-To add a harness, subclass :class:`Harness` and put its program in the sandbox image.
+To add a harness, subclass `Harness` and put its program in the sandbox image.
 """
 
 import asyncio
@@ -67,7 +67,7 @@ class HarnessRun:
 
 
 class Harness(ABC):
-    """A coding agent that runs inside a :class:`~phantom_envs.terminal.bwrap.BwrapSandbox`."""
+    """A coding agent that runs inside a `BwrapSandbox`."""
 
     @abstractmethod
     def run(
@@ -77,9 +77,9 @@ class Harness(ABC):
 
         Args:
             sandbox: The episode's sandbox.
-            instruction: The task, as :func:`~phantom_envs.terminal.task.build_instruction` wrote it.
+            instruction: The task, as `task.build_instruction` wrote it.
             endpoint_url: The model API's base URL as the sandbox reaches it.
-            endpoint: The model endpoint's settings; its ``base_url`` is the host's view.
+            endpoint: The model endpoint's settings; its `base_url` is the host's view.
 
         Returns:
             What happened.
@@ -105,7 +105,7 @@ def relay_command(sandbox: BwrapSandbox) -> str:
 
 
 def env_prefix(env: dict[str, str]) -> str:
-    """Return ``NAME=value ...`` assignments to put before a command, quoted for bash."""
+    """Return `NAME=value ...` assignments to put before a command, quoted for bash."""
     return " ".join(f"{name}={shlex.quote(value)}" for name, value in env.items())
 
 
@@ -127,6 +127,9 @@ async def run_harness(
 
     Returns:
         What the harness reported.
+
+    Raises:
+        ValueError: If the endpoint is not plain HTTP, which is all the relay carries.
     """
     url = urlsplit(endpoint.base_url)
     if url.scheme != "http":

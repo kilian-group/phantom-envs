@@ -2,15 +2,15 @@
 
 A ShellSim machine has an in-memory filesystem, its own grep / rg / sed / awk / find, and no Python,
 network or host access. Each process loads a corpus once into a frozen image, which every episode's
-machine shares copy-on-write, so a new sandbox costs milliseconds.
+machine shares copy-on-write, so a new sandbox is cheap.
 
-Usage::
+Usage:
 
     sandbox = ShellSimSandbox(corpus_image("data/envs/pw/corpus.jsonl"))
     sandbox.run("grep -l 'Ann Lee' /corpus/*.md")
     sandbox.read_answer()  # the contents of /app/output.md, or None
 
-Gotcha: a machine is one long-lived shell. Each command starts in ``/app``, but shell variables and
+Gotcha: a machine is one long-lived shell. Each command starts in `/app`, but shell variables and
 functions a command sets stay for the next one, unlike in the bwrap sandbox.
 """
 
@@ -39,12 +39,12 @@ class CorpusImage:
 def build_corpus_image(corpus_path: str | Path) -> CorpusImage:
     """Load a corpus into a frozen ShellSim image.
 
-    ShellSim has no public API for a filesystem shared between machines (``Environment.mount``
-    copies into each machine and stops at 10,000 files), so this freezes a machine through its
-    native module, as ``shellsim.Context`` does for its own installations.
+    ShellSim has no public API for a filesystem shared between machines (`Environment.mount` copies
+    into each machine and caps the number of files), so this freezes a machine through its native
+    module, as `shellsim.Context` does for its own installations.
 
     Args:
-        corpus_path: The ``corpus.jsonl`` to load.
+        corpus_path: The `corpus.jsonl` to load.
 
     Returns:
         The image: one file per document under CORPUS_DIR, and an empty WORK_DIR.
@@ -66,6 +66,7 @@ def build_corpus_image(corpus_path: str | Path) -> CorpusImage:
     return CorpusImage(native=builder._native.freeze(), num_docs=num_docs, num_bytes=num_bytes)
 
 
+# This process's frozen images, by resolved corpus path
 _images: dict[str, CorpusImage] = {}
 _images_lock = threading.Lock()
 
@@ -74,7 +75,7 @@ def corpus_image(corpus_path: str | Path) -> CorpusImage:
     """Return this process's frozen image of a corpus, building it on first use.
 
     Args:
-        corpus_path: The ``corpus.jsonl`` to load (BrowseComp-Plus takes ~20 s).
+        corpus_path: The `corpus.jsonl` to load.
 
     Returns:
         The image, shared by every sandbox of this process.
@@ -113,7 +114,7 @@ class ShellSimSandbox(Sandbox):
         """Read the answer file, for the verifier.
 
         Returns:
-            The contents of ``/app/output.md``, or None if the agent wrote none.
+            The contents of `/app/output.md`, or None if the agent wrote none.
         """
         from shellsim import SimulationError
 
@@ -123,7 +124,7 @@ class ShellSimSandbox(Sandbox):
             return None
 
     def run(self, command: str) -> str:
-        """Run one bash command in ``/app``.
+        """Run one bash command in `/app`.
 
         Args:
             command: The command.

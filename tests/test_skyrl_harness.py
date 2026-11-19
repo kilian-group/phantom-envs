@@ -59,7 +59,7 @@ def test_episode_counts_turns_and_commands():
 
 class TestGeneratorOutput:
     @pytest.fixture(scope="class", autouse=True)
-    def registered(self):
+    def registered(self) -> None:
         register()  # SkyRL aggregates env metrics per registered env class
 
     def episodes(self) -> list[Episode]:

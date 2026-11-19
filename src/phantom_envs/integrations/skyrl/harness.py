@@ -1,26 +1,26 @@
 """Shell episodes run by a coding-agent harness, as a SkyRL generator.
 
-With ``environment.skyrl_gym.phantom_shell.harness`` set (e.g. to ``pi``), the harness runs the
-agent's loop inside the bwrap sandbox, and SkyRL no longer sees the turns. `skycap
-<https://github.com/NovaSky-AI/SkyRL/tree/main/skycap>`_ sits between the two: each episode gets its
+With `environment.skyrl_gym.phantom_shell.harness` set (e.g. to `pi`), the harness runs the agent's
+loop inside the bwrap sandbox, and SkyRL doesn't see the turns. skycap
+(https://github.com/NovaSky-AI/SkyRL/tree/main/skycap) sits between the two: each episode gets its
 own OpenAI-compatible URL on a capture server in this process, which renders the harness's chat
 requests to tokens, samples from SkyRL's engines token-in/token-out, and hands back the episode's
 exact tokens, loss mask and logprobs.
 
-Per episode, :class:`HarnessGenerator` opens a skycap trajectory and a sandbox, runs the harness,
-verifies the answer file, and turns the captured tokens into one row of SkyRL's ``GeneratorOutput``,
-shaped like a row of SkyRL's own multi-turn generator.
+Per episode, `HarnessGenerator` opens a skycap trajectory and a sandbox, runs the harness, verifies
+the answer file, and turns the captured tokens into one row of SkyRL's `GeneratorOutput`, shaped
+like a row of SkyRL's own multi-turn generator.
 
-Usage (in the entrypoints of ``scripts/skyrl``)::
+Usage (in the entrypoints of `scripts/skyrl`):
 
     class Experiment(HarnessGeneratorMixin, BasePPOExp):
         pass
 
 Gotchas:
 
-- A harness needs the bwrap sandbox (``sandbox: bwrap``).
+- A harness needs the bwrap sandbox (`sandbox: bwrap`).
 - An episode whose harness fails or runs out of time trains nothing and scores 0; so does one whose
-  prompt outgrows the model's context, as in SkyRL's generator. The ``generate/harness/*`` metrics
+  prompt outgrows the model's context, as in SkyRL's generator. The `generate/harness/*` metrics
   count them.
 - Routed experts and sampler support are not captured.
 """
@@ -60,8 +60,8 @@ from phantom_envs.terminal.task import has_answer, verify
 
 # The model name a harness requests; skycap sends the engine its own name for the policy
 MODEL_NAME: str = "policy"
-# Seconds a call to the capture server may take. It shares this process with a batch's episodes, and
-# has taken over a minute to answer while 1,024 of them started
+# Seconds a call to the capture server may take. It shares this process with a whole batch's
+# episodes, so it answers slowly while a large batch starts
 CAPTURE_TIMEOUT: float = 600.0
 # Stop reasons of an episode that trains nothing and scores 0
 FAILED: frozenset[str] = frozenset({"error", "timeout"})
@@ -74,6 +74,7 @@ class RouterEngine(VLLMEngine):
     engine (its session), and keys vLLM's prefix cache by a salt that changes with the weights.
     """
 
+    # skycap's engine settings: the router's name and paths
     name = "skyrl"
     generate_path = "/skyrl/v1/generate"
     release_path = "/finish_session"
@@ -130,7 +131,7 @@ def sampling_overrides(params: SamplingParams) -> dict[str, Any]:
     The trainer computes logprobs under these settings, so the rollout must use them too.
 
     Args:
-        params: The phase's sampling params (``generator.sampling_params`` or its eval twin).
+        params: The phase's sampling params (`generator.sampling_params` or its eval twin).
 
     Returns:
         The overrides, in vLLM's names.
@@ -166,16 +167,16 @@ def to_row(episode: Episode) -> tuple[list[int], list[int], list[int], list[floa
 def to_generator_output(
     episodes: list[Episode], env_classes: list[str], overlong_filtering: bool = False
 ) -> GeneratorOutput:
-    """Assemble a batch's episodes into SkyRL's ``GeneratorOutput``, one row per episode.
+    """Assemble a batch's episodes into SkyRL's `GeneratorOutput`, one row per episode.
 
     Args:
         episodes: The episodes, in the input batch's order.
         env_classes: The env class of each episode, for per-env metrics.
-        overlong_filtering: Whether episodes that didn't end with ``stop`` train nothing
-            (``generator.apply_overlong_filtering``).
+        overlong_filtering: Whether episodes that didn't end with `stop` train nothing
+            (`generator.apply_overlong_filtering`).
 
     Returns:
-        The generator output, with rollout metrics under ``generate/`` and ``environment/``.
+        The generator output, with rollout metrics under `generate/` and `environment/`.
     """
     rows = [to_row(episode) for episode in episodes]
     prompt_ids, response_ids, loss_masks, logprobs = (list(column) for column in zip(*rows, strict=True))
@@ -226,7 +227,7 @@ class HarnessGenerator(GeneratorInterface):
         """Set up the generator; capture servers start with the first batch.
 
         Args:
-            cfg: The run's config. Its ``environment.skyrl_gym.phantom_shell`` picks the harness.
+            cfg: The run's config. Its `environment.skyrl_gym.phantom_shell` picks the harness.
             inference_engine_client: SkyRL's client of the engines that serve the policy.
 
         Raises:
@@ -268,11 +269,11 @@ class HarnessGenerator(GeneratorInterface):
         return build_vllm_cache_salt(weight_version, self.policy_model_name)
 
     def capture_url(self, params: SamplingParams) -> str:
-        """Return the URL of the capture server that samples with ``params``, starting it if needed."""
+        """Return the URL of the capture server that samples with these params, starting it if needed."""
         overrides = sampling_overrides(params)
         key = tuple(sorted(overrides.items()))
         if key not in self.captures:
-            # The harness sends its own tools, so the bare loop's tool declaration is left out
+            # The harness sends its own tools, so the config's tool declaration is left out
             template_kwargs = {
                 k: v for k, v in self.cfg.generator.chat_template_kwargs.items() if k != "tools"
             }
@@ -366,7 +367,7 @@ class HarnessGenerator(GeneratorInterface):
         prompt: list[Mapping[str, Any]],
         extras: Mapping[str, Any],
     ) -> Episode:
-        """Run one episode: sandbox, harness, verifier, and the captured tokens. See :meth:`episode`."""
+        """Run one episode: sandbox, harness, verifier, and the captured tokens. See `episode`."""
         loop = asyncio.get_running_loop()
         instruction = next(message["content"] for message in prompt if message["role"] == "user")
         # "final": the conversation the harness ended with, which for an append-only harness is all of it
@@ -419,7 +420,7 @@ class HarnessGenerator(GeneratorInterface):
 class HarnessGeneratorMixin:
     """Gives a SkyRL experiment the harness generator when the config asks for a harness.
 
-    Put it before ``BasePPOExp`` or ``EvalOnlyEntrypoint`` in a subclass's bases.
+    Put it before `BasePPOExp` or `EvalOnlyEntrypoint` in a subclass's bases.
     """
 
     def get_generator(
@@ -428,7 +429,7 @@ class HarnessGeneratorMixin:
         tokenizer: PreTrainedTokenizerBase,
         inference_engine_client: InferenceEngineInterface,
     ) -> GeneratorInterface:
-        """Return :class:`HarnessGenerator` for shell runs with a harness, else SkyRL's own generator."""
+        """Return `HarnessGenerator` for shell runs with a harness, else SkyRL's own generator."""
         shell = cfg.environment.env_class == "phantom_shell"
         if shell and cfg.environment.skyrl_gym.phantom_shell.harness != "none":
             return HarnessGenerator(cfg, inference_engine_client)

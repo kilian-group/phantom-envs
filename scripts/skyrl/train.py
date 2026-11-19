@@ -1,7 +1,8 @@
 #!/usr/bin/env -S uv run python
 """Train a search agent with SkyRL (GRPO, Megatron backend) on a PhantomEnvs or benchmark dataset.
 
-Loads a yaml config, merges dot-notation CLI overrides on top, and runs SkyRL's ``BasePPOExp``. The run name, checkpoint path and export path are derived from the config:
+Loads a yaml config, merges dot-notation CLI overrides on top, and runs SkyRL's `BasePPOExp`. The
+run name, checkpoint path and export path are derived from the config:
 
     $RUN_BASE_DIR/<run_dir>/<env>/<model>/<estimator>/<user>/<MM-DD>__r=<reward>__max_t=<turns>__s=<seed>
 
