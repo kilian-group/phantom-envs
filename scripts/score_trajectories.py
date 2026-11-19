@@ -32,6 +32,10 @@ from tabulate import tabulate
 from phantom_envs.scoring import METRICS, get_scorer, mean_stderr
 from phantom_envs.search.protocol import count_searches, extract_answer
 
+# Env classes whose episodes answer in a file. Dumps written before the env was named phantom_terminal
+# call it phantom_shell.
+TERMINAL_ENV_CLASSES: tuple[str, ...] = ("phantom_terminal", "phantom_shell")
+
 SUPPORTED_DATA_SOURCES = [
     "hp500",
     "2wiki500",
@@ -69,7 +73,7 @@ def score_trajectory_file(path: Path, data_source: str, metrics: list[str]) -> d
     for record in load_records(path):
         gts = record["env_extras"]["reward_spec"]["ground_truth"]["target"]
         response = record.get("output_response", "")
-        if record.get("env_class") == "phantom_terminal":
+        if record.get("env_class") in TERMINAL_ENV_CLASSES:
             pred = (record["env_extras"].get("answer") or "").strip() or None
             searches.append(response.count("<tool_call>"))
         else:
