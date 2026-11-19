@@ -137,15 +137,17 @@ bash scripts/skyrl/launch_skyrl.sh train e5 data/envs/pw \
 
 #### Terminal style
 
-Write the terminal parquets and pass `terminal` in place of the encoder, with the sandbox and pi settings
+Train on PhantomWiki with its articles rewritten by an LLM (`rewrite_docs_with_llm` in step 1). Write
+the terminal parquets and pass `terminal` in place of the encoder, with the sandbox and pi settings
 below. There is no retriever: each episode runs pi in its own sandbox, with the articles as files under
 `/corpus`, and the agent writes its answer to `/app/output.md`.
 [examples/train_pi_qwen35-9b.sh](examples/train_pi_qwen35-9b.sh) runs it end to end.
 
 ```bash
 # Set CUDA_HOME in .env so that Qwen3.5 kernels get compiled for fast training
-uv run python scripts/skyrl/prepare_data.py --data_dir data/envs/pw --env terminal
-bash scripts/skyrl/launch_skyrl.sh train terminal data/envs/pw \
+uv run phantom_envs generate --preset pw --output_dir data/envs/pw-rewrite rewrite_docs_with_llm=openai/gpt-6-luna
+uv run python scripts/skyrl/prepare_data.py --data_dir data/envs/pw-rewrite --env terminal
+bash scripts/skyrl/launch_skyrl.sh train terminal data/envs/pw-rewrite \
     --config scripts/skyrl/configs/models/Qwen3.5-9B.yaml \
     environment.skyrl_gym.phantom_terminal.sandbox=bwrap \
     environment.skyrl_gym.phantom_terminal.harness=pi \
@@ -154,8 +156,8 @@ bash scripts/skyrl/launch_skyrl.sh train terminal data/envs/pw \
     trainer.hf_save_interval=40
 ```
 
-The validation F1 score is near 100% by step 120, so the agent saturates the training data
-quickly; we use the step 120 checkpoint.
+In our run on `pw`, the validation F1 score was near 100% by step 120, so the agent saturates the
+training data quickly; we use the step 120 checkpoint.
 
 ### 4. Evaluate
 

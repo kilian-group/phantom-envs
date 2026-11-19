@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Train Qwen3.5-9B in the pi harness on PhantomWiki (Hops): with bash in a sandbox, it searches the
-# corpus as files and writes its answer to a file. Then evaluate the base and trained models as the same
-# agent on six real-world multi-hop QA benchmarks. Runs on one 8xH100 node: training takes ~15 h, and in our
-# run raised the average F1 from 46% to 62%.
+# Train Qwen3.5-9B in the pi harness on PhantomWiki (Hops), with its articles rewritten by an LLM: with
+# bash in a sandbox, it searches the corpus as files and writes its answer to a file. Then evaluate the
+# base and trained models as the same agent on six real-world multi-hop QA benchmarks. Runs on one 8xH100
+# node: training takes ~15 h. Our run, on the template articles (pw), raised the average F1 from 46% to 62%.
 #
-# Training stops at step 120, when PhantomWiki validation F1 is near 100%. The warmup is pinned to our
-# run's, which was planned for a full epoch.
+# Training stops at step 120, when our run's validation F1 was near 100%. The warmup is pinned to our
+# run's, which was planned for a full epoch. Rewriting the articles calls an LLM on OpenRouter: set
+# OPENROUTER_API_KEY in .env.
 #
 # Usage, from the repo root after the installation in README.md, including the sandbox image (set CUDA_HOME
 # in .env: training compiles Qwen3.5's kernels with nvcc):
@@ -17,7 +18,7 @@ set -euo pipefail
 
 MODEL=Qwen/Qwen3.5-9B
 CONFIG=scripts/skyrl/configs/models/Qwen3.5-9B.yaml
-ENV_DIR=data/envs/pw
+ENV_DIR=data/envs/pw-rewrite
 BENCHMARKS="hp500 2wiki500 msq500 synthrm500 synthsm500 frames"
 GPUS=${CUDA_VISIBLE_DEVICES:-0,1,2,3,4,5,6,7}
 # The agent: pi, with bash in a bubblewrap sandbox
@@ -35,8 +36,9 @@ fi
 # Every rollout in a batch runs its own pi at once, and each holds open files and sockets
 ulimit -n "$(ulimit -Hn)"
 
-# 1. Data: the pw environment and the benchmarks as terminal parquets (the terminal style needs no index)
-[ -f $ENV_DIR/corpus.jsonl ] || uv run phantom_envs generate --preset pw --output_dir $ENV_DIR --overwrite
+# 1. Data: the pw-rewrite environment and the benchmarks as terminal parquets (the terminal style needs no index)
+[ -f $ENV_DIR/corpus.jsonl ] || uv run phantom_envs generate --preset pw --output_dir $ENV_DIR --overwrite \
+    rewrite_docs_with_llm=openai/gpt-6-luna
 [ -f $ENV_DIR/terminal/train.parquet ] || uv run python scripts/skyrl/prepare_data.py --data_dir $ENV_DIR --env terminal
 for d in $BENCHMARKS; do
     [ -f data/$d/terminal/validation.parquet ] && continue
