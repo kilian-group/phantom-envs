@@ -7,8 +7,8 @@ auto-discovers every model subdirectory under ``--eval_dir`` that has a
 trajectory dump at ``<subdir>/dumped_evals/eval_only/<data_source>.jsonl``,
 computes means (± stderr) per model, prints a markdown table to stdout, and
 writes a CSV to ``<eval_dir>/scores/<data_source>.csv``. Search episodes answer in ``<answer>`` tags;
-shell episodes answer in a file, whose contents the env saves with the episode (their "searches" are
-tool calls).
+terminal episodes answer in a file, whose contents the env saves with the episode when it scored it
+(their "searches" are tool calls).
 
 Stderr convention:
 - EM / subem (binary): binomial stderr ``sqrt(p*(1-p)/n)``.
@@ -29,8 +29,12 @@ from pathlib import Path
 import pandas as pd
 from tabulate import tabulate
 
-from phantom_envs.protocol import count_searches, extract_answer
 from phantom_envs.scoring import METRICS, get_scorer, mean_stderr
+from phantom_envs.search.protocol import count_searches, extract_answer
+
+# Env classes whose episodes answer in a file. Dumps written before the env was named phantom_terminal
+# call it phantom_shell.
+TERMINAL_ENV_CLASSES: tuple[str, ...] = ("phantom_terminal", "phantom_shell")
 
 SUPPORTED_DATA_SOURCES = [
     "hp500",
@@ -69,7 +73,7 @@ def score_trajectory_file(path: Path, data_source: str, metrics: list[str]) -> d
     for record in load_records(path):
         gts = record["env_extras"]["reward_spec"]["ground_truth"]["target"]
         response = record.get("output_response", "")
-        if record.get("env_class") == "phantom_shell":
+        if record.get("env_class") in TERMINAL_ENV_CLASSES:
             pred = (record["env_extras"].get("answer") or "").strip() or None
             searches.append(response.count("<tool_call>"))
         else:

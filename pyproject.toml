@@ -26,7 +26,7 @@ classifiers = [
 
 dependencies = [
     # phantom_envs: environment generation (needs SWI-Prolog installed; litellm rewrites the articles
-    # with an LLM), the search protocol, scoring and the retriever client
+    # with an LLM), the episode logic, scoring and the retriever client
     "numpy",
     "pydantic",
     "requests",
@@ -42,10 +42,12 @@ dependencies = [
 # SkyRL training and evaluation (Megatron backend with vLLM), with everything around it: the retrieval
 # server and index builder (FAISS comes from `uv run --with faiss-cpu==1.12.0`, or conda's faiss-gpu
 # for Search-R1's 21M-document index), the benchmark builders (FRAMES fetches Wikipedia wikitext at a
-# pinned revision), reproduce_paper/ (lm-eval for the paper's MMLU eval) and the shell env's ShellSim
-# sandbox
+# pinned revision), reproduce_paper/ (lm-eval for the paper's MMLU eval) and the terminal env: its ShellSim
+# sandbox, and skycap, which captures the tokens of a coding-agent harness
 skyrl = [
-    "skyrl[megatron]",
+    "skyrl[megatron,skycap]",
+    # skycap uses aiohttp.web.ResponseKey (new in 3.14) but only asks for aiohttp>=3.9
+    "aiohttp>=3.14",
     "shellsim",
     "wandb",
     "transformers",
@@ -80,6 +82,7 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "phantom_envs.generator" = ["data/*.json", "rules/*.pl"]
+"phantom_envs.terminal" = ["*.js"]
 
 [tool.pytest.ini_options]
 # Only the test dirs: data/ and scratch/ can be links to large shared storage

@@ -1,0 +1,40 @@
+# The phantom_terminal env (phantom_envs.terminal) in a ShellSim sandbox: a coding agent answers with a bash
+# tool over the data dir's corpus as files. launch_skyrl.sh stacks this file right after base.yaml for
+# `<train|eval> terminal <data_dir>` and sets corpus_path. For the bwrap sandbox or the pi harness, override
+# environment.skyrl_gym.phantom_terminal.sandbox=bwrap and .harness=pi.
+#
+# Turns end at the end-of-turn token (no stop strings), and tool outputs go back as tool messages
+# through the chat template. Prepare the data with `prepare_data.py --env terminal`.
+generator:
+  use_conversation_multi_turn: true
+  # Training budget; eval.yaml (stacked last for evals) sets the paper's 20 turns and 32768 tokens
+  max_turns: 20
+  max_input_length: 16384
+  sampling_params:
+    max_generate_length: 2048
+    stop: null
+  chat_template_kwargs:
+    # phantom_envs.terminal.loop runs calls to this tool: name bash, parameter command
+    tools:
+      - type: function
+        function:
+          name: bash
+          description: Run a bash command and return its output.
+          parameters:
+            type: object
+            properties:
+              command:
+                type: string
+                description: The command to run.
+            required: [command]
+
+environment:
+  env_class: phantom_terminal
+  skyrl_gym:
+    phantom_terminal:
+      # shellsim: an in-process simulated bash. bwrap: real processes in a bubblewrap sandbox over the
+      # image of scripts/sandbox/ (set SANDBOX_ROOTFS in .env).
+      sandbox: shellsim
+      # none: SkyRL samples each turn and this env runs its bash calls. pi: the pi coding agent runs
+      # the turns inside the sandbox (needs sandbox: bwrap), with its own bash tool and prompt.
+      harness: none

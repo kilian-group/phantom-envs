@@ -15,8 +15,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from phantom_envs.protocol import count_searches, extract_answer  # noqa: F401 (used by the scripts)
 from phantom_envs.scoring import mean_stderr  # noqa: F401 (used by the scripts)
+from phantom_envs.search.protocol import count_searches, extract_answer  # noqa: F401 (used by the scripts)
 
 plt.rcParams.update({"font.family": "Lato"})
 

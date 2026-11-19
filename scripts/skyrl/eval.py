@@ -51,11 +51,15 @@ from phantom_envs.runs import compact_model_slug
 
 @ray.remote(num_cpus=1)
 def eval_entrypoint(cfg: SkyRLTrainConfig) -> dict[str, Any]:
-    """Ray task that registers the env and runs SkyRL's stock eval-only experiment."""
+    """Ray task that registers the envs and runs SkyRL's eval-only experiment."""
     from phantom_envs.integrations.skyrl import register
+    from phantom_envs.integrations.skyrl.harness import HarnessGeneratorMixin
+
+    class Experiment(HarnessGeneratorMixin, EvalOnlyEntrypoint):
+        """SkyRL's eval-only experiment; terminal runs with a harness get the harness generator."""
 
     register()
-    exp = EvalOnlyEntrypoint(cfg)
+    exp = Experiment(cfg)
     # As in SkyRL's own eval entrypoint: the client is built outside asyncio.run
     return asyncio.run(exp.run(exp.get_inference_client()))
 

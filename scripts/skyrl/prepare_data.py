@@ -4,12 +4,12 @@
 Works for every data dir: PhantomEnvs environments (``phantom_envs generate`` or
 reproduce_paper/scripts/generate_paper_data.py) and the benchmarks (``scripts/benchmarks/``). Each task
 becomes one row in the SkyRL-Gym conversation format, run by the ``phantom_search`` env
-(``phantom_envs.integrations.skyrl``). With ``--env shell``, rows go to ``shell/<split>.parquet``
-instead, for the ``phantom_shell`` env (a coding agent with bash over the corpus files).
+(``phantom_envs.integrations.skyrl``). With ``--env terminal``, rows go to ``terminal/<split>.parquet``
+instead, for the ``phantom_terminal`` env (a coding agent with bash over the corpus files).
 
 Usage:
     uv run python scripts/skyrl/prepare_data.py --data_dir data/pw/depth_16_size_1000_seed_1_50k
-    uv run python scripts/skyrl/prepare_data.py --data_dir data/hp500 --env shell
+    uv run python scripts/skyrl/prepare_data.py --data_dir data/hp500 --env terminal
 """
 
 import argparse
@@ -18,13 +18,14 @@ from pathlib import Path
 import pandas as pd
 
 from phantom_envs._types import Task
-from phantom_envs.prompts import build_messages, build_shell_messages
+from phantom_envs.search import prompts as search_prompts
 from phantom_envs.tasks import SPLITS, load_tasks, task_path
+from phantom_envs.terminal import task as terminal_task
 
 # Per env: the env class, its opening messages, and the parquet dir under the data dir
 ENVS = {
-    "search": ("phantom_search", build_messages, ""),
-    "shell": ("phantom_shell", build_shell_messages, "shell"),
+    "search": ("phantom_search", search_prompts.build_messages, ""),
+    "terminal": ("phantom_terminal", terminal_task.build_messages, "terminal"),
 }
 
 # The parquet's ``ability`` column per data source (informational; nothing reads it)
@@ -98,7 +99,7 @@ def skyrl_row(task: Task, split: str, idx: int, env: str = "search") -> dict:
         task: The task.
         split: ``train`` or ``validation``.
         idx: The task's position in its split.
-        env: ``search`` or ``shell`` (a key of ENVS).
+        env: ``search`` or ``terminal`` (a key of ENVS).
 
     Returns:
         The row: data_source, prompt, ability, env_class, reward_spec, extra_info and metadata.
@@ -149,7 +150,7 @@ if __name__ == "__main__":
         "--env",
         choices=list(ENVS),
         default="search",
-        help="search: <split>.parquet for phantom_search; shell: shell/<split>.parquet for phantom_shell.",
+        help="search: <split>.parquet for phantom_search; terminal: terminal/<split>.parquet for phantom_terminal.",
     )
     args = parser.parse_args()
     main(args)
