@@ -9,7 +9,8 @@ exact tokens, loss mask and logprobs.
 
 Per episode, `HarnessGenerator` opens a skycap trajectory and a sandbox, runs the harness, verifies
 the answer file, and turns the captured tokens into one row of SkyRL's `GeneratorOutput`, shaped
-like a row of SkyRL's own multi-turn generator.
+like a row of SkyRL's own multi-turn generator. Each batch gets its own capture server, and the
+sandbox reaches only that server's model routes.
 
 Usage (in the entrypoints of `scripts/skyrl`):
 
@@ -22,6 +23,8 @@ Gotchas:
 - An episode whose harness fails or runs out of time trains nothing and scores 0; so does one whose
   prompt outgrows the model's context, as in SkyRL's generator. The `generate/harness/*` metrics
   count them.
+- Commands in the sandbox can call the model through the relay too, outside the harness's turn cap;
+  such calls land in the episode's trajectory.
 - Routed experts and sampler support are not captured.
 """
 
@@ -34,6 +37,7 @@ from typing import Any
 
 from loguru import logger
 from skycap import CapturePool, CaptureService, Sample
+from skycap.exposure import Exposure
 from skycap.tokens.engine import VLLMEngine
 from skycap.tokens.renderer import RenderersRenderer
 from skyrl.backends.skyrl_train.inference_servers.base import InferenceEngineInterface
@@ -65,6 +69,18 @@ MODEL_NAME: str = "policy"
 CAPTURE_TIMEOUT: float = 600.0
 # Stop reasons of an episode that trains nothing and scores 0
 FAILED: frozenset[str] = frozenset({"error", "timeout"})
+
+
+class HarnessRoutesOnly(Exposure):
+    """skycap's harness routes (chat completions and models) on a loopback port of their own.
+
+    The sandbox's relay reaches this listener rather than the capture server's own, so commands in the
+    sandbox can't reach skycap's control plane, which creates and finishes trajectories.
+    """
+
+    def start(self, harness_url: str) -> str:
+        """Return where the listener is reached: on this machine, at its own URL."""
+        return harness_url
 
 
 class RouterEngine(VLLMEngine):
@@ -258,8 +274,6 @@ class HarnessGenerator(GeneratorInterface):
             episode_timeout=terminal_cfg.episode_timeout,
             system_prompt=terminal_cfg.system_prompt or None,
         )
-        # One capture server per sampling setup: training and evaluation may sample differently
-        self.captures: dict[tuple, CaptureService] = {}
 
     def cache_salt(self) -> str | None:
         """Return vLLM's prefix-cache salt for the weights the engines serve now, as SkyRL builds it."""
@@ -268,36 +282,32 @@ class HarnessGenerator(GeneratorInterface):
             return None
         return build_vllm_cache_salt(weight_version, self.policy_model_name)
 
-    def capture_url(self, params: SamplingParams) -> str:
-        """Return the URL of the capture server that samples with these params, starting it if needed."""
-        overrides = sampling_overrides(params)
-        key = tuple(sorted(overrides.items()))
-        if key not in self.captures:
-            # The harness sends its own tools, so the config's tool declaration is left out
-            template_kwargs = {
-                k: v for k, v in self.cfg.generator.chat_template_kwargs.items() if k != "tools"
-            }
-            # The renderer picks the chat format by base model name; a checkpoint dir has none
-            chat_format_model = self.terminal_cfg.chat_format_model or self.cfg.trainer.policy.model.path
-            service = CaptureService(
-                self.inference_engine_client.get_endpoint_url(),
-                mode="tokens",
-                engine=RouterEngine(self.cache_salt),
-                renderer=RenderersRenderer(chat_format_model, chat_template_kwargs=template_kwargs),
-                model=self.policy_model_name,
-                max_model_len=self.max_model_len,
-                sampling_overrides=overrides,
-                host="127.0.0.1",
-            )
-            service.start()
-            self.captures[key] = service
-        return self.captures[key].url
+    def start_capture(self, params: SamplingParams) -> CaptureService:
+        """Start a capture server that samples with `params`.
 
-    def close(self) -> None:
-        """Stop the capture servers."""
-        for service in self.captures.values():
-            service.stop()
-        self.captures.clear()
+        Args:
+            params: The phase's sampling params (`generator.sampling_params` or its eval twin).
+
+        Returns:
+            The started server. Stop it once its batch is done: it keeps finished trajectories in memory.
+        """
+        # The harness sends its own tools, so the config's tool declaration is left out
+        template_kwargs = {k: v for k, v in self.cfg.generator.chat_template_kwargs.items() if k != "tools"}
+        # The renderer picks the chat format by base model name; a checkpoint dir has none
+        chat_format_model = self.terminal_cfg.chat_format_model or self.cfg.trainer.policy.model.path
+        service = CaptureService(
+            self.inference_engine_client.get_endpoint_url(),
+            mode="tokens",
+            engine=RouterEngine(self.cache_salt),
+            renderer=RenderersRenderer(chat_format_model, chat_template_kwargs=template_kwargs),
+            model=self.policy_model_name,
+            max_model_len=self.max_model_len,
+            sampling_overrides=sampling_overrides(params),
+            host="127.0.0.1",
+            exposure=HarnessRoutesOnly(),
+        )
+        service.start()
+        return service
 
     async def generate(self, input_batch: GeneratorInput, disable_tqdm: bool = False) -> GeneratorOutput:
         """Run the batch's episodes, all at once, and return one row per prompt in input order.
@@ -314,17 +324,22 @@ class HarnessGenerator(GeneratorInterface):
         metadata = input_batch.get("batch_metadata")
         evaluating = getattr(metadata, "training_phase", None) == TRAINING_PHASE_EVAL
         params = self.cfg.generator.eval_sampling_params if evaluating else self.cfg.generator.sampling_params
-        url = self.capture_url(params)
 
-        # Each episode holds a thread while its harness runs
-        with ThreadPoolExecutor(max_workers=len(prompts), thread_name_prefix="harness-episode-") as executor:
-            async with CapturePool([url], timeout=CAPTURE_TIMEOUT) as pool:
-                episodes = await asyncio.gather(
-                    *(
-                        self.episode(pool, executor, prompt, extra)
-                        for prompt, extra in zip(prompts, extras, strict=True)
+        service = self.start_capture(params)
+        try:
+            # Each episode holds a thread while its harness runs
+            with ThreadPoolExecutor(
+                max_workers=len(prompts), thread_name_prefix="harness-episode-"
+            ) as executor:
+                async with CapturePool([service.url], timeout=CAPTURE_TIMEOUT) as pool:
+                    episodes = await asyncio.gather(
+                        *(
+                            self.episode(pool, executor, prompt, extra)
+                            for prompt, extra in zip(prompts, extras, strict=True)
+                        )
                     )
-                )
+        finally:
+            await asyncio.to_thread(service.stop)
         for extra, episode in zip(extras, episodes, strict=True):
             # NOTE: mutate the extras to store the turns and the answer, saved in SkyRL's eval dumps
             extra["num_turns"] = episode.turns
@@ -373,7 +388,7 @@ class HarnessGenerator(GeneratorInterface):
         # "final": the conversation the harness ended with, which for an append-only harness is all of it
         async with pool.trajectory({"data_source": extras["data_source"]}, paths="final") as trajectory:
             endpoint = ModelEndpoint(
-                base_url=trajectory.base_url,
+                base_url=trajectory.exposed_base_url,  # the model routes alone (see HarnessRoutesOnly)
                 model=MODEL_NAME,
                 api_key=trajectory.api_key or "none",
                 context_window=self.max_model_len,

@@ -5,11 +5,20 @@ import pytest
 pytest.importorskip("skyrl")  # the skyrl extra
 pytest.importorskip("skycap")
 
-from skycap import Sample  # noqa: E402
+import json  # noqa: E402
+import urllib.error  # noqa: E402
+import urllib.request  # noqa: E402
+
+from skycap import CaptureService, Sample  # noqa: E402
 from skyrl.train.utils.trainer_utils import validate_generator_output  # noqa: E402
 
 from phantom_envs.integrations.skyrl import register  # noqa: E402
-from phantom_envs.integrations.skyrl.harness import Episode, to_generator_output, to_row  # noqa: E402
+from phantom_envs.integrations.skyrl.harness import (  # noqa: E402
+    Episode,
+    HarnessRoutesOnly,
+    to_generator_output,
+    to_row,
+)
 
 BASH_CALL = {"type": "function", "function": {"name": "bash", "arguments": '{"command": "ls"}'}}
 
@@ -89,3 +98,32 @@ class TestGeneratorOutput:
         filtered = to_generator_output(self.episodes(), ["phantom_terminal"] * 3, overlong_filtering=True)
         assert any(kept[1]) and not any(filtered["loss_masks"][1])
         assert filtered["loss_masks"][0] == kept[0]
+
+
+def post(url: str) -> tuple[int, dict]:
+    """POST an empty JSON object; return the status and the JSON reply (empty on an error)."""
+    request = urllib.request.Request(
+        url, data=b"{}", method="POST", headers={"Content-Type": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return response.status, json.load(response)
+    except urllib.error.HTTPError as error:
+        return error.code, {}
+
+
+def test_sandbox_reaches_only_the_model_routes():
+    """The listener the sandbox's relay reaches serves no trajectory control plane."""
+    # No model is reached: creating and finishing trajectories doesn't call upstream
+    service = CaptureService(
+        "http://127.0.0.1:9/v1", mode="text", model="m", host="127.0.0.1", exposure=HarnessRoutesOnly()
+    )
+    service.start()
+    try:
+        status, created = post(f"{service.url}/trajectories")
+        assert status == 200
+        assert created["exposed_base_url"].startswith(f"{service.exposed_url}/t/")
+        assert post(f"{service.exposed_url}/trajectories")[0] == 404
+        assert post(f"{service.exposed_url}/trajectories/{created['id']}/finish")[0] == 404
+    finally:
+        service.stop()
