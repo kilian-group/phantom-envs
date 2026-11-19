@@ -54,27 +54,24 @@ MAX_FILE_MIB: int = 64
 # Seconds past a command's timeout before the host stops waiting and kills the sandbox
 REPLY_GRACE: float = 5.0
 
-# The loop that runs inside the sandbox. For each command, the host sends one line, "<timeout in
-# seconds> <address space in KiB> <file size in KiB> <command length in bytes>" (a limit may be
-# "unlimited"), then the command. The loop runs it with its output on file descriptor $2, a file the
-# host opened, and answers with the exit code. $1 is the limit on processes.
-#
-# Nothing the host reads or writes while commands run has a path inside the sandbox, so a command
-# can't point the host at its own files.
+# The loop that runs inside the sandbox. For each command, the host writes it to SHARED_DIR/command
+# and sends one line, "<timeout in seconds> <address space in KiB> <file size in KiB>" (a limit may be
+# "unlimited"). The loop runs it with its output on file descriptor $2, a file the host opened, and
+# answers with the exit code. $1 is the limit on processes. Commands can't tamper with either file:
+# the shared dir is read-only to them, and the output file has no path.
 READY: bytes = b"ready\n"
-COMMAND_LOOP: str = r"""
+COMMAND_LOOP: str = rf"""
 ulimit -u "$1"
-# read -N counts bytes in the C locale; the loop's commands keep the sandbox's locale
-LC_ALL=C
 echo ready
-while read -r seconds memory file_size length && read -r -N "$length" command; do
+while read -r seconds memory file_size; do
     (
         ulimit -v "$memory" -f "$file_size"
-        exec timeout --signal=KILL "$seconds" bash -c "$command"
+        exec timeout --signal=KILL "$seconds" bash -c "$(< {SHARED_DIR}/command)"
     ) >&"$2" 2>&1 < /dev/null
-    echo $?
-    # Stop what the command left running in the background
+    status=$?
+    # Stop what the command left running in the background, before the host reads its output
     kill -KILL -1 2> /dev/null
+    echo $status
 done
 """
 # The exit code of a command that `timeout` killed
@@ -231,11 +228,10 @@ class BwrapSandbox(Sandbox):
         memory, file_size = (
             (self.memory_kib, self.max_file_kib) if limited else ("unlimited", self.max_output_kib)
         )
-        # bash can't hold NUL bytes, and the loop counts the bytes it reads
-        script = command.replace("\0", "").encode()
         with self.lock:
             if self.closed or self.process.poll() is not None:
                 return STOPPED, -1, False
+            (self.shared_dir / "command").write_text(command)
             output_fd = self.output.fileno()
             os.ftruncate(output_fd, 0)
             os.lseek(output_fd, 0, os.SEEK_SET)
@@ -244,9 +240,7 @@ class BwrapSandbox(Sandbox):
             watchdog.start()
             start = time.monotonic()
             try:
-                self.process.stdin.write(
-                    f"{timeout:g} {memory} {file_size} {len(script)}\n".encode() + script
-                )
+                self.process.stdin.write(f"{timeout:g} {memory} {file_size}\n".encode())
                 self.process.stdin.flush()
                 reply = self.process.stdout.readline()
             except (BrokenPipeError, ValueError):  # the sandbox died, or close() ran meanwhile
