@@ -21,6 +21,7 @@ from typing import Any
 
 import pytest
 
+from phantom_envs.terminal.bwrap import REPLY_GRACE, SHARED_DIR
 from phantom_envs.terminal.corpus_files import (
     MAX_DOC_BYTES,
     corpus_files,
@@ -188,6 +189,31 @@ class TestBwrapSandbox:
         # A harness runs unlimited, and limits the commands it starts instead
         sandbox.execute(f"head -c {too_big}K /dev/zero > /tmp/big", limited=False)
         assert sandbox.run("stat -c %s /tmp/big").strip() == str(too_big * 1024)
+
+    def test_commands_arrive_intact(self, make_sandbox):
+        sandbox = make_sandbox()
+        assert sandbox.run("echo 'naïve — ü'").strip() == "naïve — ü"  # framed by bytes, not characters
+        assert sandbox.run("cat << 'EOF'\nline one\n  line two\nEOF").splitlines() == [
+            "line one",
+            "  line two",
+        ]
+
+    def test_shared_dir_cant_redirect_host_files(self, make_sandbox, tmp_path):
+        host_file = tmp_path / "host.txt"
+        host_file.write_text("host secret\n")
+        sandbox = make_sandbox()
+        for name in ("command", "output", "stdin", "stdout"):
+            sandbox.run(f"ln -sf {host_file} {SHARED_DIR}/{name}")
+        assert sandbox.run("echo next").strip() == "next"
+        assert host_file.read_text() == "host secret\n"
+
+    def test_host_stops_waiting_on_a_stopped_loop(self, make_sandbox):
+        sandbox = make_sandbox(timeout=1)
+        # The command's parent is `timeout`, whose parent is the loop that answers the host
+        start = time.monotonic()
+        output = sandbox.run("kill -STOP $(awk '{print $4}' /proc/$PPID/stat)")
+        assert output == "[the sandbox has stopped]"
+        assert time.monotonic() - start < 1 + REPLY_GRACE + 5
 
     def test_outlives_the_thread_that_opened_it(self, make_sandbox):
         with ThreadPoolExecutor(max_workers=1) as executor:

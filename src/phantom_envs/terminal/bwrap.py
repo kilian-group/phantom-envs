@@ -24,7 +24,8 @@ Usage:
         answer = sandbox.read_answer()
 
 A harness that runs inside the sandbox shares files and sockets with it through
-`BwrapSandbox.shared_dir`, which commands see as `SHARED_DIR`.
+`BwrapSandbox.shared_dir`, which commands see as `SHARED_DIR`. Commands can replace what is in it, so
+the host writes there only before the first command runs.
 """
 
 import json
@@ -51,20 +52,29 @@ PATH: str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # Largest file a command may write by default, in MiB
 MAX_FILE_MIB: int = 64
+# Most of a command's output the host reads
+MAX_OUTPUT_BYTES: int = 1024**3
+# Seconds past a command's timeout before the host stops waiting and kills the sandbox
+REPLY_GRACE: float = 5.0
 
-# The loop that runs inside the sandbox. The host writes a command to SHARED_DIR/command and sends
-# one line, "<timeout in seconds> <address space in KiB> <file size in KiB>" (a limit may be
-# "unlimited"); the loop runs the command with its output in SHARED_DIR/output and answers with the
-# exit code. $1 is the limit on processes.
+# The loop that runs inside the sandbox. For each command, the host sends one line, "<timeout in
+# seconds> <address space in KiB> <file size in KiB> <command length in bytes>" (a limit may be
+# "unlimited"), then the command. The loop runs it with its output on file descriptor $2, a file the
+# host opened, and answers with the exit code. $1 is the limit on processes.
+#
+# Nothing the host reads or writes while commands run has a path inside the sandbox, so a command
+# can't point the host at its own files.
 READY: bytes = b"ready\n"
-COMMAND_LOOP: str = rf"""
+COMMAND_LOOP: str = r"""
 ulimit -u "$1"
+# read -N counts bytes in the C locale; the loop's commands keep the sandbox's locale
+LC_ALL=C
 echo ready
-while read -r seconds memory file_size; do
+while read -r seconds memory file_size length && read -r -N "$length" command; do
     (
         ulimit -v "$memory" -f "$file_size"
-        exec timeout --signal=KILL "$seconds" bash -c "$(< {SHARED_DIR}/command)"
-    ) > {SHARED_DIR}/output 2>&1 < /dev/null
+        exec timeout --signal=KILL "$seconds" bash -c "$command"
+    ) >&"$2" 2>&1 < /dev/null
     echo $?
     # Stop what the command left running in the background
     kill -KILL -1 2> /dev/null
@@ -72,6 +82,7 @@ done
 """
 # The exit code of a command that `timeout` killed
 KILLED: int = 128 + signal.SIGKILL
+STOPPED: str = "[the sandbox has stopped]"
 
 # bwrap's --die-with-parent stops the sandbox when the *thread* that started bwrap exits, not only its
 # process. Sandboxes are often opened from worker threads, so all of them start from this one thread,
@@ -148,6 +159,8 @@ class BwrapSandbox(Sandbox):
         self.host_dir = Path(tempfile.mkdtemp(prefix="phantom-sandbox-"))
         self.shared_dir = self.host_dir / "shared"
         self.shared_dir.mkdir()
+        # Where commands write their output: a file with no name, which only the host can open
+        self.output = tempfile.TemporaryFile(dir=self.host_dir)
 
         argv = [
             "bwrap", "--unshare-all", "--die-with-parent", "--uid", "0", "--gid", "0", "--new-session",
@@ -169,10 +182,15 @@ class BwrapSandbox(Sandbox):
         # bwrap reports the sandbox's first process on this pipe; close() stops the sandbox through it
         status_read, status_write = os.pipe()
         argv += ["--json-status-fd", str(status_write)]
-        argv += ["bash", "-c", COMMAND_LOOP, "loop", str(max_processes)]
+        output_fd = self.output.fileno()
+        argv += ["bash", "-c", COMMAND_LOOP, "loop", str(max_processes), str(output_fd)]
         with open(self.host_dir / "stderr", "wb") as stderr:
             self.process = start_process(
-                argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr, pass_fds=[status_write]
+                argv,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=stderr,
+                pass_fds=[status_write, output_fd],
             )
         os.close(status_write)
         with os.fdopen(status_read) as status:
@@ -210,21 +228,35 @@ class BwrapSandbox(Sandbox):
         """
         timeout = self.timeout if timeout is None else timeout
         memory, file_size = (self.memory_kib, self.max_file_kib) if limited else ("unlimited", "unlimited")
+        # bash can't hold NUL bytes, and the loop counts the bytes it reads
+        script = command.replace("\0", "").encode()
         with self.lock:
             if self.closed or self.process.poll() is not None:
-                return "[the sandbox has stopped]", -1, False
-            (self.shared_dir / "command").write_text(command)
+                return STOPPED, -1, False
+            output_fd = self.output.fileno()
+            os.ftruncate(output_fd, 0)
+            os.lseek(output_fd, 0, os.SEEK_SET)
+            # `timeout` bounds the command, but a command can also stop the loop that waits on it
+            watchdog = threading.Timer(timeout + REPLY_GRACE, self.kill)
+            watchdog.start()
             start = time.monotonic()
             try:
-                self.process.stdin.write(f"{timeout:g} {memory} {file_size}\n".encode())
+                self.process.stdin.write(
+                    f"{timeout:g} {memory} {file_size} {len(script)}\n".encode() + script
+                )
                 self.process.stdin.flush()
                 reply = self.process.stdout.readline()
             except (BrokenPipeError, ValueError):  # the sandbox died, or close() ran meanwhile
                 reply = b""
-            if not reply:
-                return "[the sandbox has stopped]", -1, False
-            exit_code = int(reply)
-            output = (self.shared_dir / "output").read_bytes().decode(errors="replace")
+            finally:
+                watchdog.cancel()
+            try:
+                exit_code = int(reply)
+            except ValueError:  # the sandbox stopped, or a command wrote to the loop's own stdout
+                self.kill()
+                return STOPPED, -1, False
+            size = min(os.fstat(output_fd).st_size, MAX_OUTPUT_BYTES)
+            output = os.pread(output_fd, size, 0).decode(errors="replace")
             timed_out = exit_code == KILLED and time.monotonic() - start >= timeout
             return output, exit_code, timed_out
 
@@ -251,11 +283,8 @@ class BwrapSandbox(Sandbox):
         output, exit_code, _ = self.execute(f"cat {ANSWER_PATH}")
         return output if exit_code == 0 else None
 
-    def close(self) -> None:
-        """Stop the sandbox's processes and delete its files. Safe to call more than once."""
-        if self.closed:
-            return
-        self.closed = True
+    def kill(self) -> None:
+        """Kill every process in the sandbox. Its pending command, if any, reports that it stopped."""
         # Killing the first process of a PID namespace kills every process in it. bwrap, its parent,
         # is still running, so the pid can't have been reused.
         if self.process.poll() is None and self.init_pid is not None:
@@ -263,7 +292,15 @@ class BwrapSandbox(Sandbox):
                 os.kill(self.init_pid, signal.SIGKILL)
             except ProcessLookupError:
                 pass
+
+    def close(self) -> None:
+        """Stop the sandbox's processes and delete its files. Safe to call more than once."""
+        if self.closed:
+            return
+        self.closed = True
+        self.kill()
         self.process.wait()
+        self.output.close()
         for pipe in (self.process.stdin, self.process.stdout):
             pipe.close()
         shutil.rmtree(self.host_dir, ignore_errors=True)
