@@ -70,6 +70,8 @@ uv run phantom_envs generate \
 - `max_hops`, `max_constraints`: the hardest questions.
 - `kinds`: `base`, `count` ("How many ...") and `comparison` questions.
 - `hard_mode=true`: relations that span several articles, like `cousin`.
+- `rewrite_docs_with_llm=openai/gpt-6-luna`: rewrite the template articles as Wikipedia-style
+  biographies with the same facts, using that model on OpenRouter (set `OPENROUTER_API_KEY`).
 
 `EnvConfig` in `src/phantom_envs/_types.py` lists every setting. The same from Python:
 
