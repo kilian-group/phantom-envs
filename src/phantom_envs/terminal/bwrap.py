@@ -24,8 +24,7 @@ Usage:
         answer = sandbox.read_answer()
 
 A harness that runs inside the sandbox shares files and sockets with it through
-`BwrapSandbox.shared_dir`, which commands see as `SHARED_DIR`. Commands can replace what is in it, so
-the host writes there only before the first command runs.
+`BwrapSandbox.shared_dir`, which commands see read-only as `SHARED_DIR`.
 """
 
 import json
@@ -45,15 +44,13 @@ from phantom_envs.terminal.task import ANSWER_PATH, CORPUS_DIR, WORK_DIR
 
 # Commands run as root of the sandbox's own user namespace, as in a container; it has no rights outside
 HOME_DIR: str = "/root"
-# Where commands see the sandbox's shared_dir
+# Where commands see the sandbox's shared_dir, read-only
 SHARED_DIR: str = "/run/sandbox"
 # The PATH of commands; the rest of the host's environment is cleared
 PATH: str = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # Largest file a command may write by default, in MiB
 MAX_FILE_MIB: int = 64
-# Most of a command's output the host reads
-MAX_OUTPUT_BYTES: int = 1024**3
 # Seconds past a command's timeout before the host stops waiting and kills the sandbox
 REPLY_GRACE: float = 5.0
 
@@ -122,6 +119,7 @@ class BwrapSandbox(Sandbox):
         memory_gib: int = 4,
         scratch_mib: int = 256,
         max_file_mib: int = MAX_FILE_MIB,
+        max_output_mib: int = 1024,
         max_processes: int = 256,
     ) -> None:
         """Start the sandbox.
@@ -133,6 +131,7 @@ class BwrapSandbox(Sandbox):
             memory_gib: Address-space limit of each process, in GiB.
             scratch_mib: Size of each of `/app`, `/tmp` and the home dir, in MiB.
             max_file_mib: Largest file a command may write, in MiB. A command's output counts.
+            max_output_mib: Largest output a harness may write, in MiB (see `execute`).
             max_processes: Most processes the sandbox may hold at once.
 
         Raises:
@@ -153,6 +152,7 @@ class BwrapSandbox(Sandbox):
         self.timeout = timeout
         self.memory_kib = memory_gib * 1024**2
         self.max_file_kib = max_file_mib * 1024
+        self.max_output_kib = max_output_mib * 1024
         self.lock = threading.Lock()  # one command at a time
         self.closed = False
 
@@ -169,7 +169,7 @@ class BwrapSandbox(Sandbox):
             "--ro-bind", str(rootfs / "usr"), "/usr", "--ro-bind", str(rootfs / "etc"), "/etc",
             "--proc", "/proc", "--dev", "/dev",
             "--ro-bind", str(corpus_dir), CORPUS_DIR,
-            "--bind", str(self.shared_dir), SHARED_DIR,
+            "--ro-bind", str(self.shared_dir), SHARED_DIR,
             "--chdir", WORK_DIR,
         ]  # fmt: skip
         # /bin, /lib and so on are symlinks into /usr in the image
@@ -217,17 +217,20 @@ class BwrapSandbox(Sandbox):
         Args:
             command: The command.
             timeout: Wall-clock limit in seconds; the sandbox's own by default.
-            limited: Whether the command's processes get the address-space and file-size limits. A
-                harness runs without them, since Node.js can't start under an address-space limit and
-                the harness's own log carries every output it reads. It limits the commands it starts
-                with `command_limits` instead.
+            limited: Whether the command's processes get the per-process limits on address space and
+                file size. A harness runs without them, since Node.js can't start under an
+                address-space limit and the harness's own log carries every output it reads; its
+                output is capped at `max_output_mib` instead, and it limits the commands it starts
+                with `command_limits`.
 
         Returns:
             The command's stdout and stderr, its exit code, and whether it timed out. A sandbox that
             has stopped gives a note in place of the output and exit code -1.
         """
         timeout = self.timeout if timeout is None else timeout
-        memory, file_size = (self.memory_kib, self.max_file_kib) if limited else ("unlimited", "unlimited")
+        memory, file_size = (
+            (self.memory_kib, self.max_file_kib) if limited else ("unlimited", self.max_output_kib)
+        )
         # bash can't hold NUL bytes, and the loop counts the bytes it reads
         script = command.replace("\0", "").encode()
         with self.lock:
@@ -255,7 +258,7 @@ class BwrapSandbox(Sandbox):
             except ValueError:  # the sandbox stopped, or a command wrote to the loop's own stdout
                 self.kill()
                 return STOPPED, -1, False
-            size = min(os.fstat(output_fd).st_size, MAX_OUTPUT_BYTES)
+            size = min(os.fstat(output_fd).st_size, self.max_output_kib * 1024)
             output = os.pread(output_fd, size, 0).decode(errors="replace")
             timed_out = exit_code == KILLED and time.monotonic() - start >= timeout
             return output, exit_code, timed_out

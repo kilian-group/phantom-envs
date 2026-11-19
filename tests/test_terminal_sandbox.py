@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from phantom_envs.terminal.bwrap import REPLY_GRACE, SHARED_DIR
+from phantom_envs.terminal.bwrap import REPLY_GRACE, SHARED_DIR, BwrapSandbox
 from phantom_envs.terminal.corpus_files import (
     MAX_DOC_BYTES,
     corpus_files,
@@ -207,6 +207,10 @@ class TestBwrapSandbox:
         assert sandbox.run("echo next").strip() == "next"
         assert host_file.read_text() == "host secret\n"
 
+    def test_shared_dir_is_read_only(self, make_sandbox):
+        sandbox = make_sandbox()
+        assert "Read-only file system" in sandbox.run(f"touch {SHARED_DIR}/x")
+
     def test_host_stops_waiting_on_a_stopped_loop(self, make_sandbox):
         sandbox = make_sandbox(timeout=1)
         # The command's parent is `timeout`, whose parent is the loop that answers the host
@@ -225,6 +229,16 @@ class TestBwrapSandbox:
         sandbox.close()
         assert sandbox.run("echo hi") == "[the sandbox has stopped]"
         assert sandbox.read_answer() is None
+
+
+def test_bwrap_harness_output_is_capped(corpus_path):
+    """A harness runs without the per-process file-size limit, but its output is still capped."""
+    require_backend("bwrap")
+    with BwrapSandbox(
+        write_corpus_dir(corpus_path), os.environ["SANDBOX_ROOTFS"], max_output_mib=1
+    ) as sandbox:
+        output, exit_code, _ = sandbox.execute("head -c 2M /dev/zero", limited=False)
+    assert len(output) == 1024**2 and exit_code != 0
 
 
 def processes_running(argv: list[str]) -> list[int]:

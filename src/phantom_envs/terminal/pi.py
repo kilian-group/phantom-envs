@@ -22,13 +22,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from phantom_envs.terminal.bwrap import SHARED_DIR, BwrapSandbox
+from phantom_envs.terminal.bwrap import HOME_DIR, SHARED_DIR, BwrapSandbox
 from phantom_envs.terminal.harness import Harness, HarnessRun, ModelEndpoint, env_prefix, relay_command
 
 # Enforces the budgets that pi has no setting for
 EXTENSION: Path = Path(__file__).with_name("pi_extension.js")
 # pi's config dir inside the sandbox, a subdir of the shared dir
 CONFIG_DIR: str = "pi"
+# Where pi runs from a copy of its config: pi writes lock files there, and the shared dir is read-only
+STATE_DIR: str = f"{HOME_DIR}/.pi"
 # The name pi's config gives the model endpoint
 PROVIDER: str = "phantom"
 # How skycap and vLLM word a prompt that doesn't fit the model's context
@@ -116,11 +118,11 @@ class PiHarness(Harness):
             model: The model name pi requests.
 
         Returns:
-            The command, with pi's environment in front.
+            The command: copy pi's config where pi can write, then run pi with its environment.
         """
         config_dir = f"{SHARED_DIR}/{CONFIG_DIR}"
         env = {
-            "PI_CODING_AGENT_DIR": config_dir,
+            "PI_CODING_AGENT_DIR": STATE_DIR,
             # No update checks, telemetry or model catalog refreshes: the sandbox has no network
             "PI_OFFLINE": "1",
             "PI_SKIP_VERSION_CHECK": "1",
@@ -138,7 +140,7 @@ class PiHarness(Harness):
         ]  # fmt: skip
         if self.system_prompt is not None:
             args += ["--system-prompt", self.system_prompt]
-        return f"{env_prefix(env)} {shlex.join([*args, instruction])}"
+        return f"cp -r {config_dir} {STATE_DIR} && {env_prefix(env)} {shlex.join([*args, instruction])}"
 
 
 def parse_events(output: str) -> HarnessRun:
