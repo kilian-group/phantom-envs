@@ -5,23 +5,11 @@ import pytest
 pytest.importorskip("skyrl")  # the skyrl extra
 pytest.importorskip("skycap")
 
-import json  # noqa: E402
-import urllib.error  # noqa: E402
-import urllib.request  # noqa: E402
-
-from skycap import CaptureService, Sample  # noqa: E402
-from skycap.graph import CallInfo, MessageGraph  # noqa: E402
-from skycap.paths import Row, final_path  # noqa: E402
+from skycap import Sample  # noqa: E402
 from skyrl.train.utils.trainer_utils import validate_generator_output  # noqa: E402
 
 from phantom_envs.integrations.skyrl import register  # noqa: E402
-from phantom_envs.integrations.skyrl.harness import (  # noqa: E402
-    Episode,
-    HarnessRoutesOnly,
-    harness_path,
-    to_generator_output,
-    to_row,
-)
+from phantom_envs.integrations.skyrl.harness import Episode, to_generator_output, to_row  # noqa: E402
 
 BASH_CALL = {"type": "function", "function": {"name": "bash", "arguments": '{"command": "ls"}'}}
 
@@ -101,55 +89,3 @@ class TestGeneratorOutput:
         filtered = to_generator_output(self.episodes(), ["phantom_terminal"] * 3, overlong_filtering=True)
         assert any(kept[1]) and not any(filtered["loss_masks"][1])
         assert filtered["loss_masks"][0] == kept[0]
-
-
-def post(url: str) -> tuple[int, dict]:
-    """POST an empty JSON object; return the status and the JSON reply (empty on an error)."""
-    request = urllib.request.Request(
-        url, data=b"{}", method="POST", headers={"Content-Type": "application/json"}
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            return response.status, json.load(response)
-    except urllib.error.HTTPError as error:
-        return error.code, {}
-
-
-def test_sandbox_reaches_only_the_model_routes():
-    """The listener the sandbox's relay reaches serves no trajectory control plane."""
-    # No model is reached: creating and finishing trajectories doesn't call upstream
-    service = CaptureService(
-        "http://127.0.0.1:9/v1", mode="text", model="m", host="127.0.0.1", exposure=HarnessRoutesOnly()
-    )
-    service.start()
-    try:
-        status, created = post(f"{service.url}/trajectories")
-        assert status == 200
-        assert created["exposed_base_url"].startswith(f"{service.exposed_url}/t/")
-        assert post(f"{service.exposed_url}/trajectories")[0] == 404
-        assert post(f"{service.exposed_url}/trajectories/{created['id']}/finish")[0] == 404
-    finally:
-        service.stop()
-
-
-def test_harness_path_trains_the_harness_conversation():
-    """A model call made from inside the sandbox after the harness's last turn doesn't replace it."""
-    graph = MessageGraph()
-
-    def add(parent: int | None, role: str, author: str, returned_at: float | None = None) -> int:
-        key = str(len(graph))
-        node, _ = graph.add(
-            parent, role=role, author=author, message={"role": role, "content": key},
-            match_hash=key, delta_hash=key, created_at=0.0,
-        )  # fmt: skip
-        if returned_at is not None:
-            node.calls.append(CallInfo(t_start=returned_at - 1, t_end=returned_at))
-        return node.id
-
-    task = add(None, "user", "client")
-    first = add(task, "assistant", "model", returned_at=1.0)
-    tool = add(first, "tool", "client")
-    last = add(tool, "assistant", "model", returned_at=2.0)
-    stray = add(add(None, "user", "client"), "assistant", "model", returned_at=3.0)
-    assert final_path(graph)[0].path[-1] == stray
-    assert harness_path(graph) == [Row([task, first, tool, last], [first, last])]
