@@ -2,7 +2,15 @@
 
 import pytest
 
-from phantom_envs.terminal.task import ANSWER_PATH, CORPUS_DIR, build_messages, has_answer, verify
+from phantom_envs.terminal.task import (
+    ANSWER_PATH,
+    CORPUS_DIR,
+    build_instruction,
+    build_messages,
+    has_answer,
+    has_search,
+    verify,
+)
 
 
 def test_instruction_names_the_paths():
@@ -14,6 +22,23 @@ def test_instruction_names_the_paths():
 
 def test_question_with_braces():
     assert build_messages("What is {x}?")[1]["content"].endswith("Question: What is {x}?")
+
+
+class TestToolSets:
+    def test_bash_is_the_default_task(self):
+        assert build_instruction("Who?") == build_instruction("Who?", "bash")
+        assert "/corpus" in build_instruction("Who?")
+
+    @pytest.mark.parametrize("tools", ["bash+search", "search"])
+    def test_search_tasks_name_the_tool_and_no_corpus_dir(self, tools):
+        instruction = build_instruction("What is {x}?", tools)
+        assert "search tool" in instruction and "/corpus" not in instruction
+        assert ANSWER_PATH in instruction and instruction.endswith("Question: What is {x}?")
+        assert has_search(tools) and not has_search("bash")
+
+    def test_without_bash_the_answer_is_written_with_the_write_tool(self):
+        assert "write tool" in build_instruction("Who?", "search")
+        assert "write tool" not in build_instruction("Who?", "bash+search")
 
 
 class TestVerify:

@@ -76,7 +76,7 @@ def test_eval_writes_scored_rows_and_resumes(data_dir, tmp_path, monkeypatch, ca
             base_url=f"http://127.0.0.1:{runner.addresses[0][1]}/v1", api_key_env="TEST_API_KEY",
             rootfs=os.environ["SANDBOX_ROOTFS"], reasoning="default", max_turns=20, max_tokens=2048,
             max_input_length=32768, temperature=1.0, command_timeout=60.0, memory_gib=4, concurrency=2,
-            requests_per_minute=6000, request_timeout=60.0, max_retries=1, limit=None,
+            requests_per_minute=6000, request_timeout=60.0, max_retries=1, limit=None, tools="bash", mcp_socket="",
         )  # fmt: skip
         try:
             await eval_api.main(args)

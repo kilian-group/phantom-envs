@@ -1,6 +1,6 @@
 """Shared types: environment configs and tasks, and the retrieval API's request and response models.
 
-The retrieval models are used by both the retrieval server (retriever/retrieval_server.py) and the
+The retrieval models are used by both the retrieval server (retriever/rest_server.py) and the
 search client (retriever/client.py), so neither imports the other.
 """
 
@@ -113,7 +113,7 @@ class DocumentResult(BaseModel):
     document: Document = Field(description="The retrieved Wikipedia passage.")
     score: float | None = Field(
         default=None,
-        description="FAISS inner-product score; None when scores are not requested.",
+        description="The retriever's score (dense: inner product); None when scores are not requested.",
     )
 
 

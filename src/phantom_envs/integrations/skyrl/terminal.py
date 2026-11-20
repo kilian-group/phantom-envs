@@ -16,7 +16,7 @@ from skyrl_gym.envs.base_text_env import BaseTextEnv, BaseTextEnvStepOutput
 from phantom_envs.scoring import METRICS
 from phantom_envs.terminal.loop import ShellEpisodeState, ShellProtocol, tool_error
 from phantom_envs.terminal.sandbox import BACKENDS, Sandbox, open_sandbox
-from phantom_envs.terminal.task import has_answer, verify
+from phantom_envs.terminal.task import BASH, TOOLSETS, has_answer, verify
 
 # Who runs the agent's loop: SkyRL's generator (none), or a coding agent inside the sandbox
 HARNESSES: tuple[str, ...] = ("none", "pi")
@@ -41,6 +41,19 @@ class PhantomTerminalEnvConfig:
         default="none",
         metadata={
             "help": "Who runs the agent's loop: none (SkyRL's generator) or pi, a coding agent (needs bwrap)"
+        },
+    )
+    tools: Literal[TOOLSETS] = field(
+        default=BASH,
+        metadata={
+            "help": "The agent's tools: bash (over the corpus as files), bash+search or search (a search "
+            "tool from the retrieval MCP server, and no corpus in the sandbox). Search needs harness: pi"
+        },
+    )
+    mcp_socket: str = field(
+        default="",
+        metadata={
+            "help": "Unix socket of the retrieval MCP server, for the search tool (set by the launcher)"
         },
     )
     system_prompt: str = field(
@@ -91,6 +104,7 @@ class PhantomTerminalEnv(BaseTextEnv):
         """
         super().__init__()
         assert env_config.corpus_path, "environment.skyrl_gym.phantom_terminal.corpus_path must be set"
+        assert env_config.tools == BASH, "The search tool needs a harness: set phantom_terminal.harness=pi"
         self.env_config = env_config
         self.extras: dict[str, Any] = extras  # NOTE: mutate this to store metrics
         self.protocol = ShellProtocol(

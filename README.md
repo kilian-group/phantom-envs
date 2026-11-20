@@ -13,22 +13,26 @@ trained in these worlds transfer to real-world multi-hop QA.
 </p>
 
 <p align="center">
-  <img src="assets/terminal-agent.gif" alt="Qwen3.5-9B, trained with RL in PhantomEnvironments, answers a question in the pi harness" width="100%"/>
+  <img src="assets/search-agent.gif" alt="Qwen3.5-9B, trained with RL in PhantomEnvironments, answers a question in the pi harness with a search tool" width="100%"/>
 </p>
 
 Each environment is a fictional universe of people, written out as one article per person, plus
 questions whose answers are computed by Prolog. The agent searches the articles with
 `<search>query</search>`, reads the `<information>` that comes back, and ends with
 `<answer>...</answer>`, rewarded on the final answer. Or, in a terminal with the [pi](https://pi.dev)
-harness, it searches the articles as files with bash in a sandbox and writes its answer to a file.
+harness, it finds the articles with a search tool served over MCP, works with bash in a sandbox, and
+writes its answer to a file.
 
 ## News
 
+- **2026-Nov-20:** [Train Qwen3.5-9B in the pi harness with a search tool](examples/train_pi_search_qwen35-9b.sh)
+  served over MCP, improving F1 score from 56% to 66%. The agent learns to run several searches per turn.
+  On an 8xH100 node, training took 13 hours.
 - **2026-Nov-19:** [Fine-tune Inkling 2 Small with Tinker](examples/train_inkling_tinker.sh) in the pi harness,
   improving F1 score from 65% to 75% (Qwen4-Max: 69%). Training cost ~$145 on Tinker and took 6 hours.
 - **2026-Nov-19:** [Train Qwen3.5-9B in the pi harness](examples/train_pi_qwen35-9b.sh), with bash in a
   sandbox, improving F1 score from 46% to 62% (Qwen4-Max: 69%). On an 8xH100 node, training took 15
-  hours.
+  hours (see [visualization](assets/terminal-agent.gif)).
 - **2026-Nov-17:** [Train Qwen3.5-9B in a coding agent harness](examples/train_shell_qwen35-9b.sh) to search
   using bash commands, improving F1 score from 50% to 63% (Qwen4-Max: 65%). On an 8xH100 node, training
   took 11 hours.
@@ -103,7 +107,9 @@ facts and articles), `corpus.jsonl` (the articles the agent searches) and `tasks
 
 ### 2. Build the retrieval indexes
 
-Do this step for the Search-R1 style only. The terminal style does not require building an index.
+The Search-R1 style agent and the terminal agent's search tool find the articles with a dense
+retriever: e5 while training, Qwen3-Embedding-4B for evaluation. A terminal agent with only bash reads
+the articles as files and needs no index.
 
 ```bash
 # For training (e5-base-v2)
@@ -140,26 +146,26 @@ bash scripts/skyrl/launch_skyrl.sh train e5 data/envs/pw \
 #### Terminal style
 
 Train on PhantomWiki with its articles rewritten by an LLM (`rewrite_docs_with_llm` in step 1). Write
-the terminal parquets and pass `terminal` in place of the encoder, with the sandbox and pi settings
-below. There is no retriever: each episode runs pi in its own sandbox, with the articles as files under
-`/corpus`, and the agent writes its answer to `/app/output.md`.
-[examples/train_pi_qwen35-9b.sh](examples/train_pi_qwen35-9b.sh) runs it end to end.
+the terminal parquets and pass `terminal` in place of the encoder and `--search=e5` for the search tool.
+Each episode runs pi in its own bubblewrap sandbox with bash and a search tool; the articles are not on
+disk, so the agent finds them by searching, and writes its answer to `/app/output.md`.
+[examples/train_pi_search_qwen35-9b.sh](examples/train_pi_search_qwen35-9b.sh) runs it end to end.
 
 ```bash
 # Set CUDA_HOME in .env so that Qwen3.5 kernels get compiled for fast training
 uv run phantom_envs generate --preset pw --output_dir data/envs/pw-rewrite rewrite_docs_with_llm=openai/gpt-6-luna
 uv run python scripts/skyrl/prepare_data.py --data_dir data/envs/pw-rewrite --env terminal
-bash scripts/skyrl/launch_skyrl.sh train terminal data/envs/pw-rewrite \
+uv run --with faiss-cpu==1.12.0 python -m phantom_envs.retriever.build_index --data_dir data/envs/pw-rewrite
+bash scripts/skyrl/launch_skyrl.sh train terminal data/envs/pw-rewrite --search=e5 \
     --config scripts/skyrl/configs/models/Qwen3.5-9B.yaml \
-    environment.skyrl_gym.phantom_terminal.sandbox=bwrap \
-    environment.skyrl_gym.phantom_terminal.harness=pi \
     trainer.train_batch_size=128 \
     trainer.policy_mini_batch_size=128 \
-    trainer.hf_save_interval=40
+    trainer.max_tokens_per_microbatch=12288 \
+    trainer.hf_save_interval=20
 ```
 
-In our run on `pw`, the validation F1 score was near 100% by step 120, so the agent saturates the
-training data quickly; we use the step 120 checkpoint.
+The search server runs on the first GPU beside the trainer. We paused the run at the step 100
+checkpoint when `pw` validation saturated near 100%.
 
 ### 4. Evaluate
 
@@ -188,18 +194,19 @@ For your own runs, pass `trainer.policy.model.path=<run>/exports/global_step_<N>
 
 #### Terminal style
 
-Pass `terminal` and the same sandbox and pi settings here too. Evals run on all 8 GPUs (the Qwen3.5-9B
-config runs 4 vLLM engines with tensor parallelism 2):
+Pass `terminal` and `--search=qwen3-4b` here too. Evals run on all 8 GPUs (the Qwen3.5-9B config runs 4
+vLLM engines with tensor parallelism 2):
 
 ```bash
 uv run python scripts/skyrl/prepare_data.py --data_dir data/hp500 --env terminal
-CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 bash scripts/skyrl/launch_skyrl.sh eval terminal data/hp500 \
+uv run --with faiss-cpu==1.12.0 python -m phantom_envs.retriever.build_index --data_dir data/hp500 --encoder qwen3-4b
+CUDA_VISIBLE_DEVICES=0,1,2,3,4,5,6,7 bash scripts/skyrl/launch_skyrl.sh eval terminal data/hp500 --search=qwen3-4b \
     --config scripts/skyrl/configs/models/Qwen3.5-9B.yaml \
-    environment.skyrl_gym.phantom_terminal.sandbox=bwrap \
-    environment.skyrl_gym.phantom_terminal.harness=pi \
-    trainer.policy.model.path=<run>/exports/global_step_120/policy \
-    --out_dir=out__eval=hp500__pi
-uv run python scripts/score_trajectories.py --eval_dir out__eval=hp500__pi --data_source hp500
+    trainer.policy.model.path=<run>/exports/global_step_100/policy \
+    --out_dir=out__eval=hp500__pi_search
+uv run python scripts/score_trajectories.py --eval_dir out__eval=hp500__pi_search --data_source hp500
+# The episodes as chats, with each search and bash call in turn, at http://127.0.0.1:8765
+uv run python scripts/visualize_terminal_trajectories.py out__eval=hp500__pi_search
 ```
 
 ## Repository layout

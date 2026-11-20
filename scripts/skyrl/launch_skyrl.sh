@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Run one SkyRL training or eval job on this node, with a retrieval server over <data_dir>, or with
-# the terminal env (a coding agent with bash over <data_dir>/corpus.jsonl, no retriever).
+# the terminal env: a coding agent in a sandbox, with bash over <data_dir>/corpus.jsonl or a search tool.
 #
 # Usage:
-#   bash scripts/skyrl/launch_skyrl.sh <train|eval> <e5|qwen3-4b|terminal> <data_dir> [--config <yaml>]... [overrides]...
+#   bash scripts/skyrl/launch_skyrl.sh <train|eval> <e5|qwen3-4b|terminal> <data_dir> [--search=<r>] [--config <yaml>]... [overrides]...
 #
 #   train         trains on <data_dir>/{train,validation}.parquet
 #   eval          evaluates on <data_dir>/validation.parquet, with configs/eval.yaml last; needs --out_dir=<dir>
@@ -11,6 +11,9 @@
 #   terminal      the phantom_terminal env: <data_dir>/terminal/*.parquet (prepare_data.py --env terminal), with
 #                 configs/envs/shellsim.yaml right after base.yaml. Its sandbox is ShellSim, or bubblewrap
 #                 with environment.skyrl_gym.phantom_terminal.sandbox=bwrap (needs SANDBOX_ROOTFS)
+#   --search=<r>  with terminal: give the agent a search tool instead of the corpus as files, answered
+#                 by retriever <r> (bm25, e5 or qwen3-4b) through an MCP server. The agent is then pi in
+#                 bubblewrap (needs SANDBOX_ROOTFS), with bash and the search tool.
 #   retriever.*   retriever settings, e.g. retriever.faiss_gpu=true for Search-R1
 #   overrides     SkyRL settings in dot notation, and --out_dir / --run_dir / --name
 #
@@ -26,11 +29,19 @@
 set -euo pipefail
 
 usage() {
-    sed -n '5,19p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '5,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 source "$(dirname "${BASH_SOURCE[0]}")/../launch_common.sh"
 launch_setup "$@"
+if [ -n "$SEARCH" ] && [ "$ENCODER" != terminal ]; then
+    echo "--search gives the terminal agent a search tool: use it with terminal, not $ENCODER" >&2
+    exit 1
+fi
+if [ -n "$SEARCH" ] && [ -z "${SANDBOX_ROOTFS:-}" ]; then
+    echo "--search runs pi in bubblewrap: build the sandbox image (see README.md) and set SANDBOX_ROOTFS" >&2
+    exit 1
+fi
 
 CONFIGS=scripts/skyrl/configs
 PARQUET_DIR=$DATA_DIR
@@ -62,8 +73,17 @@ if [ -n "$TRAINER_GPUS" ]; then
 fi
 
 if [ "$ENCODER" != terminal ]; then
-    start_retriever
-    ENV_ARGS=("environment.skyrl_gym.phantom_search.search_url=$SEARCH_URL")
+    start_retriever rest_server "$ENCODER"
+    ENV_ARGS=("environment.skyrl_gym.phantom_search.search_url=http://127.0.0.1:$RETRIEVER_PORT/retrieve")
+elif [ -n "$SEARCH" ]; then
+    # Sandboxes have no network: they reach the MCP server on this socket, which is mounted into them
+    MCP_SOCKET=/tmp/phantom-mcp-$RUN_ID.sock
+    start_retriever mcp_server "$SEARCH" "socket=$MCP_SOCKET"
+    # pi is the harness that speaks MCP. Before the user's overrides, which may pick other tools.
+    ENV_ARGS+=("environment.skyrl_gym.phantom_terminal.sandbox=bwrap"
+        "environment.skyrl_gym.phantom_terminal.harness=pi"
+        "environment.skyrl_gym.phantom_terminal.tools=bash+search"
+        "environment.skyrl_gym.phantom_terminal.mcp_socket=$MCP_SOCKET")
 fi
 
 # Ray's head port stays below the kernel's ephemeral range (32768+)

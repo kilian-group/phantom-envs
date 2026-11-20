@@ -8,7 +8,6 @@ SANDBOX_ROOTFS (see scripts/sandbox/build_rootfs.sh) and aiohttp (the skyrl extr
 import asyncio
 import json
 import os
-import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -16,7 +15,16 @@ import pytest
 
 from phantom_envs.terminal import relay
 from phantom_envs.terminal.bwrap import MAX_FILE_MIB
-from phantom_envs.terminal.harness import ENDPOINT_PORT, HarnessRun, ModelEndpoint, env_prefix, run_harness
+from phantom_envs.terminal.harness import (
+    ENDPOINT_PORT,
+    MCP_PORT,
+    HarnessRun,
+    McpServer,
+    ModelEndpoint,
+    env_prefix,
+    mcp_mounts,
+    run_harness,
+)
 from phantom_envs.terminal.pi import PiHarness, parse_events
 from phantom_envs.terminal.task import ANSWER_PATH, build_instruction
 
@@ -61,6 +69,46 @@ def test_pi_command_carries_the_budgets():
     assert command.endswith("'Who is Ann'\"'\"'s mother?'")  # the instruction, quoted for bash
     assert "--system-prompt" not in command
     assert "--system-prompt 'Be brief.'" in PiHarness(system_prompt="Be brief.").command("q", "policy")
+
+
+RETRIEVER = McpServer(name="retriever", socket_path="/host/retriever.sock", tools=("search",))
+
+
+class TestMcpServers:
+    def test_tools_are_named_after_their_server(self):
+        assert RETRIEVER.tool_names == ["mcp__retriever__search"]
+        assert mcp_mounts([RETRIEVER]) == {"/run/mcp/retriever.sock": "/host/retriever.sock"}
+
+    def test_pi_declares_only_the_tools_it_is_given(self):
+        command = PiHarness().command("q", "policy", [RETRIEVER])
+        assert "--tools bash,mcp__retriever__search" in command and "--extension builtin:mcp" in command
+        assert "--tools write,mcp__retriever__search" in PiHarness(tools=("write",)).command(
+            "q", "policy", [RETRIEVER]
+        )
+        assert "--tools bash " in PiHarness().command(
+            "q", "policy"
+        ) and "builtin:mcp" not in PiHarness().command("q", "policy")
+
+    def test_pi_config_points_at_the_relayed_server(self, tmp_path: Path):
+        endpoint = ModelEndpoint(base_url="http://127.0.0.1:1/v1", model="policy")
+        PiHarness(command_timeout=30).write_config(
+            tmp_path, "http://127.0.0.1:8080/v1", endpoint, "ulimit -v 1", [RETRIEVER]
+        )
+        servers = json.loads((tmp_path / "mcp.json").read_text())["mcpServers"]
+        assert servers == {
+            "retriever": {"url": f"http://127.0.0.1:{MCP_PORT}/mcp", "exposure": "direct", "timeout": 30}
+        }
+
+    def test_mcp_calls_are_counted(self):
+        results = [{"toolName": "bash"}, {"toolName": "mcp__retriever__search"}]
+        message = {"role": "assistant", "stopReason": "toolUse"}
+        run = parse_events(json.dumps({"type": "turn_end", "message": message, "toolResults": results}))
+        assert (run.commands, run.mcp_calls) == (2, 1)
+
+    def test_a_missing_tool_fails_the_episode(self):
+        missing = json.dumps({"type": "phantom_missing_tools", "tools": ["mcp__retriever__search"]})
+        run = parse_events("\n".join([missing, turn_end("aborted")]))
+        assert (run.turns, run.stop_reason) == (0, "error") and "mcp__retriever__search" in run.error
 
 
 def test_env_prefix_quotes_values():
@@ -109,10 +157,13 @@ def chunk(delta: dict[str, Any], finish_reason: str | None = None) -> bytes:
 
 
 class ScriptedModel:
-    """A chat-completions server that plays a fixed episode: one bash command per turn, then text."""
+    """A chat-completions server that plays a fixed episode: one tool call per turn, then text.
 
-    def __init__(self, commands: list[str]) -> None:
-        self.commands = commands
+    A call is a bash command, or (tool name, arguments) for another tool.
+    """
+
+    def __init__(self, calls: list[str | tuple[str, dict[str, Any]]]) -> None:
+        self.calls = [("bash", {"command": call}) if isinstance(call, str) else call for call in calls]
         self.requests: list[dict[str, Any]] = []
 
     async def complete(self, request: "aiohttp.web.Request") -> "aiohttp.web.StreamResponse":
@@ -124,8 +175,9 @@ class ScriptedModel:
         turn = sum(message["role"] == "assistant" for message in body["messages"])
         response = web.StreamResponse(headers={"Content-Type": "text/event-stream"})
         await response.prepare(request)
-        if turn < len(self.commands):
-            function = {"name": "bash", "arguments": json.dumps({"command": self.commands[turn]})}
+        if turn < len(self.calls):
+            name, arguments = self.calls[turn]
+            function = {"name": name, "arguments": json.dumps(arguments)}
             call = {"index": 0, "id": f"call_{turn}", "type": "function", "function": function}
             await response.write(chunk({"role": "assistant", "tool_calls": [call]}))
             await response.write(chunk({}, "tool_calls"))
@@ -135,8 +187,13 @@ class ScriptedModel:
         await response.write(b"data: [DONE]\n\n")
         return response
 
-    async def play(self, harness: PiHarness, corpus_path: Path) -> tuple[HarnessRun, str | None]:
-        """Run one pi episode against this model; return the harness's report and the answer file."""
+    async def play(
+        self, harness: PiHarness, corpus_path: Path | None, mcp_servers: tuple[McpServer, ...] = ()
+    ) -> tuple[HarnessRun, str | None]:
+        """Run one pi episode against this model; return the harness's report and the answer file.
+
+        The sandbox holds the corpus, or none and the MCP servers' sockets instead.
+        """
         from aiohttp import web
 
         from phantom_envs.terminal.sandbox import open_sandbox
@@ -150,8 +207,10 @@ class ScriptedModel:
         port = runner.addresses[0][1]
         endpoint = ModelEndpoint(base_url=f"http://127.0.0.1:{port}/v1", model="policy")
         try:
-            with open_sandbox("bwrap", corpus_path, rootfs=os.environ["SANDBOX_ROOTFS"]) as sandbox:
-                run = await run_harness(harness, sandbox, build_instruction("Who is Ann's mother?"), endpoint)
+            rootfs, mounts = os.environ["SANDBOX_ROOTFS"], mcp_mounts(mcp_servers)
+            with open_sandbox("bwrap", corpus_path, rootfs=rootfs, mounts=mounts) as sandbox:
+                instruction = build_instruction("Who is Ann's mother?")
+                run = await run_harness(harness, sandbox, instruction, endpoint, mcp_servers=mcp_servers)
                 return run, sandbox.read_answer()
         finally:
             await runner.cleanup()
@@ -164,14 +223,6 @@ def corpus_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
     doc = {"id": "0", "title": "Ann Lee", "contents": "# Ann Lee\n\nThe mother of Ann Lee is Bea Lee.\n"}
     path.write_text(json.dumps(doc) + "\n")
     return path
-
-
-@pytest.fixture
-def needs_sandbox() -> None:
-    """Skip the test unless this machine can run pi in a bwrap sandbox."""
-    pytest.importorskip("aiohttp")
-    if shutil.which("bwrap") is None or not os.environ.get("SANDBOX_ROOTFS"):
-        pytest.skip("needs bubblewrap and SANDBOX_ROOTFS")
 
 
 @pytest.mark.usefixtures("needs_sandbox")
@@ -207,3 +258,49 @@ class TestPiEpisode:
         assert (run.turns, run.commands, run.stop_reason) == (3, 2, "stop")
         # A command still can't write a file past the limit
         assert "File size limit exceeded" in str(model.requests[-1]["messages"][-1]["content"])
+
+
+@pytest.mark.usefixtures("needs_sandbox")
+class TestPiEpisodeWithSearch:
+    def test_agent_searches_through_the_mounted_socket(self, search_server: McpServer):
+        search = ("mcp__retriever__search", {"query": "mother of Ann Lee"})
+        model = ScriptedModel([search, f"ls /corpus; echo 'Bea Lee' > {ANSWER_PATH}"])
+        run, answer = asyncio.run(model.play(PiHarness(), None, (search_server,)))
+        assert (run.turns, run.commands, run.mcp_calls, run.stop_reason) == (3, 2, 1, "stop")
+        assert answer == "Bea Lee\n"
+        # pi offered the search tool beside bash, and the model read the document the search found
+        tools = [tool["function"]["name"] for tool in model.requests[0]["tools"]]
+        assert tools == ["bash", "mcp__retriever__search"]
+        search_output, bash_output = (
+            str(m["content"]) for m in model.requests[-1]["messages"] if m["role"] == "tool"
+        )
+        assert "Doc 1:" in search_output and "The mother of Ann Lee is Bea Lee." in search_output
+        assert "No such file" in bash_output  # the sandbox holds no corpus
+
+    def test_search_output_is_cut_like_any_tool_output(self, search_server: McpServer):
+        model = ScriptedModel([("mcp__retriever__search", {"query": "mother of Ann Lee"})])
+        asyncio.run(model.play(PiHarness(max_output_chars=20), None, (search_server,)))
+        [search_output] = (str(m["content"]) for m in model.requests[-1]["messages"] if m["role"] == "tool")
+        assert "[output truncated: showed 20 of" in search_output
+
+    def test_write_tool_replaces_bash_for_a_search_only_agent(self, search_server: McpServer):
+        write = ("write", {"path": ANSWER_PATH, "content": "Bea Lee"})
+        model = ScriptedModel([write])
+        _, answer = asyncio.run(model.play(PiHarness(tools=("write",)), None, (search_server,)))
+        assert answer.strip() == "Bea Lee"
+        tools = [tool["function"]["name"] for tool in model.requests[0]["tools"]]
+        assert tools == ["write", "mcp__retriever__search"]
+
+    def test_episode_fails_when_the_server_does_not_answer(self, tmp_path: Path, needs_sandbox: None):
+        """pi must not run an episode without the search tool it was promised."""
+        import socket
+
+        # Bound but never listening: connections are refused
+        dead = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        dead.bind(str(tmp_path / "dead.sock"))
+        server = McpServer(name="retriever", socket_path=str(tmp_path / "dead.sock"), tools=("search",))
+        model = ScriptedModel([f"echo 'Bea Lee' > {ANSWER_PATH}"])
+        run, answer = asyncio.run(model.play(PiHarness(), None, (server,)))
+        dead.close()
+        assert run.stop_reason == "error" and "mcp__retriever__search" in run.error
+        assert answer is None and model.requests == []  # the model was never called

@@ -23,6 +23,7 @@ Usage:
 """
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from pathlib import Path
 from types import TracebackType
 from typing import Self
@@ -88,10 +89,11 @@ def format_output(output: str, exit_code: int, timed_out_after: float | None = N
 
 def open_sandbox(
     backend: str,
-    corpus_path: str | Path,
+    corpus_path: str | Path | None,
     timeout: float = 60.0,
     memory_gib: int = 4,
     rootfs: str | Path | None = None,
+    mounts: Mapping[str, str | Path] | None = None,
 ) -> Sandbox:
     """Create a sandbox over a corpus.
 
@@ -100,18 +102,24 @@ def open_sandbox(
 
     Args:
         backend: `shellsim` or `bwrap`.
-        corpus_path: The `corpus.jsonl` to serve under `/corpus`.
+        corpus_path: The `corpus.jsonl` to serve under `/corpus`. None, for bwrap only, opens a sandbox
+            without a corpus: its agent reaches the documents through a search tool instead.
         timeout: Wall-clock limit per command, in seconds.
         memory_gib: Memory limit in GiB: of the whole machine for ShellSim, of each process for bwrap.
         rootfs: For bwrap, the root filesystem that `scripts/sandbox/build_rootfs.sh` exported.
+        mounts: For bwrap, host files or dirs to show read-only inside the sandbox, by their path
+            there.
 
     Returns:
         The sandbox.
 
     Raises:
-        ValueError: For an unknown backend, or bwrap without a root filesystem.
+        ValueError: For an unknown backend, bwrap without a root filesystem, or ShellSim without a
+            corpus or with mounts.
     """
     if backend == "shellsim":
+        if corpus_path is None or mounts:
+            raise ValueError("The shellsim sandbox always holds a corpus and takes no mounts: use bwrap")
         from phantom_envs.terminal.shellsim import ShellSimSandbox, corpus_image
 
         return ShellSimSandbox(corpus_image(corpus_path), timeout=timeout, memory_gib=memory_gib)
@@ -124,5 +132,6 @@ def open_sandbox(
                 "The bwrap sandbox needs a root filesystem: build one with "
                 "scripts/sandbox/build_rootfs.sh and set SANDBOX_ROOTFS in .env"
             )
-        return BwrapSandbox(write_corpus_dir(corpus_path), rootfs, timeout=timeout, memory_gib=memory_gib)
+        corpus_dir = write_corpus_dir(corpus_path) if corpus_path is not None else None
+        return BwrapSandbox(corpus_dir, rootfs, timeout=timeout, memory_gib=memory_gib, mounts=mounts)
     raise ValueError(f"Unknown sandbox backend {backend!r} (expected one of {BACKENDS})")

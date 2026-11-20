@@ -44,6 +44,7 @@ from tinker_cookbook.tokenizer_utils import Tokenizer, get_tokenizer
 from phantom_envs._types import Task
 from phantom_envs.integrations.tinker.cli import EvalConfig, load_config
 from phantom_envs.integrations.tinker.dataset import TerminalEnvGroupBuilder
+from phantom_envs.integrations.tinker.harness import agent_setup
 from phantom_envs.runs import compact_model_slug
 from phantom_envs.scoring import METRICS
 from phantom_envs.tasks import load_tasks
@@ -126,7 +127,9 @@ async def main(cli: EvalConfig) -> None:
     """Run the eval's missing episodes and write the dump and the aggregated results."""
     env = cli.env
     tasks = load_tasks(cli.data_dir, "validation")[: cli.limit]
-    corpus_path = str(Path(cli.data_dir) / "corpus.jsonl")
+    # One agent for every episode, built and checked before the first one
+    agent = agent_setup(env, str(Path(cli.data_dir) / "corpus.jsonl"))
+    await asyncio.to_thread(agent.wait_for_servers)
     dump = EpisodeDump(cli.out_dir, cli.name or compact_model_slug(env.model_name), tasks[0].data_source)
     todo = dump.todo(tasks)
     print(f"{env.model_name} on {cli.data_dir}: {len(todo)} of {len(tasks)} episodes to run", flush=True)
@@ -146,7 +149,7 @@ async def main(cli: EvalConfig) -> None:
                 spent["skipped"] += 1
                 return
             try:
-                group = await do_group_rollout(TerminalEnvGroupBuilder(task, corpus_path, env, 1), policy)
+                group = await do_group_rollout(TerminalEnvGroupBuilder(task, agent, env, 1), policy)
             except Exception as error:  # noqa: BLE001 (the episode stays undone for a rerun)
                 spent["failed"] += 1
                 print(f"episode {task.id} failed: {type(error).__name__}: {error}", flush=True)

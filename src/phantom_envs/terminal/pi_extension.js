@@ -4,6 +4,7 @@
 //   PHANTOM_MAX_TURNS         stop the agent after this many turns
 //   PHANTOM_COMMAND_TIMEOUT   seconds a bash command may run
 //   PHANTOM_MAX_OUTPUT_CHARS  characters of a command's output that the model reads
+//   PHANTOM_REQUIRED_TOOLS    comma-separated tools the agent must have from its first turn on
 
 const limit = (name) => Number(process.env[name] || 0);
 
@@ -16,6 +17,20 @@ export default function (pi) {
   const maxTurns = limit("PHANTOM_MAX_TURNS");
   const commandTimeout = limit("PHANTOM_COMMAND_TIMEOUT");
   const maxOutputChars = limit("PHANTOM_MAX_OUTPUT_CHARS");
+
+  // pi starts without an MCP server's tools if the server is slow to connect. The episode would then
+  // run without them, so it ends here instead, with an event that PiHarness reports as an error.
+  const requiredTools = (process.env.PHANTOM_REQUIRED_TOOLS || "").split(",").filter(Boolean);
+  let checkedTools = false;
+  pi.on("turn_start", (_event, ctx) => {
+    if (checkedTools) return;
+    checkedTools = true;
+    const active = new Set(pi.getActiveTools());
+    const missing = requiredTools.filter((name) => !active.has(name));
+    if (missing.length === 0) return;
+    process.stdout.write(`${JSON.stringify({ type: "phantom_missing_tools", tools: missing })}\n`);
+    ctx.abort();
+  });
 
   let turns = 0;
   pi.on("turn_end", (_event, ctx) => {

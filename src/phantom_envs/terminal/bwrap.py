@@ -8,7 +8,8 @@ command in a fresh bash.
 What a command sees:
 
 - `/usr` and `/etc` of the image that `scripts/sandbox/build_rootfs.sh` exported, read-only;
-- the corpus under `/corpus`, read-only;
+- the corpus under `/corpus`, read-only, unless the sandbox was opened without one;
+- any host files it was opened with (`mounts`), read-only, such as an MCP server's socket;
 - `/app` (the working dir), `/tmp` and its home dir, each an empty in-memory filesystem with a
   size cap;
 - no network and no host files.
@@ -35,6 +36,7 @@ import subprocess
 import tempfile
 import threading
 import time
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -110,7 +112,7 @@ class BwrapSandbox(Sandbox):
 
     def __init__(
         self,
-        corpus_dir: str | Path,
+        corpus_dir: str | Path | None,
         rootfs: str | Path,
         timeout: float = 60.0,
         memory_gib: int = 4,
@@ -118,11 +120,13 @@ class BwrapSandbox(Sandbox):
         max_file_mib: int = MAX_FILE_MIB,
         max_output_mib: int = 1024,
         max_processes: int = 256,
+        mounts: Mapping[str, str | Path] | None = None,
     ) -> None:
         """Start the sandbox.
 
         Args:
-            corpus_dir: The corpus as files (see `corpus_files.write_corpus_dir`).
+            corpus_dir: The corpus as files (see `corpus_files.write_corpus_dir`), or None for a
+                sandbox without /corpus, whose agent reaches the documents some other way.
             rootfs: The root filesystem that `scripts/sandbox/build_rootfs.sh` exported.
             timeout: Wall-clock limit per command, in seconds.
             memory_gib: Address-space limit of each process, in GiB.
@@ -130,6 +134,8 @@ class BwrapSandbox(Sandbox):
             max_file_mib: Largest file a command may write, in MiB. A command's output counts.
             max_output_mib: Largest output a harness may write, in MiB (see `execute`).
             max_processes: Most processes the sandbox may hold at once.
+            mounts: Host files or dirs to show read-only inside the sandbox, by their path there:
+                e.g. the Unix socket of a server the agent may call.
 
         Raises:
             FileNotFoundError: If `bwrap` is not installed, `rootfs` is not an exported image, or
@@ -139,7 +145,7 @@ class BwrapSandbox(Sandbox):
         rootfs = Path(rootfs)
         if shutil.which("bwrap") is None:
             raise FileNotFoundError("bubblewrap is not installed: no `bwrap` on PATH")
-        if not Path(corpus_dir).is_dir():
+        if corpus_dir is not None and not Path(corpus_dir).is_dir():
             raise FileNotFoundError(f"No corpus dir at {corpus_dir}")
         if not (rootfs / "usr").is_dir() or not (rootfs / "etc").is_dir():
             raise FileNotFoundError(
@@ -165,10 +171,13 @@ class BwrapSandbox(Sandbox):
             "--setenv", "PATH", PATH, "--setenv", "HOME", HOME_DIR, "--setenv", "LANG", "C.UTF-8",
             "--ro-bind", str(rootfs / "usr"), "/usr", "--ro-bind", str(rootfs / "etc"), "/etc",
             "--proc", "/proc", "--dev", "/dev",
-            "--ro-bind", str(corpus_dir), CORPUS_DIR,
             "--ro-bind", str(self.shared_dir), SHARED_DIR,
             "--chdir", WORK_DIR,
         ]  # fmt: skip
+        if corpus_dir is not None:
+            argv += ["--ro-bind", str(corpus_dir), CORPUS_DIR]
+        for sandbox_path, host_path in (mounts or {}).items():
+            argv += ["--ro-bind", str(host_path), sandbox_path]
         # /bin, /lib and so on are symlinks into /usr in the image
         for entry in sorted(os.scandir(rootfs), key=lambda e: e.name):
             if entry.is_symlink():
