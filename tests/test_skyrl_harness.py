@@ -54,6 +54,7 @@ def test_episode_without_tokens_keeps_its_row():
 def test_episode_counts_turns_and_commands():
     episode = Episode(stop_reason="stop", sample=captured())
     assert (episode.turns, episode.commands) == (2, 1)
+    assert (Episode(stop_reason="error").turns, Episode(stop_reason="error").commands) == (0, 0)
 
 
 def test_episode_counts_searches_apart_from_other_commands():
@@ -62,7 +63,6 @@ def test_episode_counts_searches_apart_from_other_commands():
     sample.messages[1]["tool_calls"] = [BASH_CALL, search_call]
     episode = Episode(stop_reason="stop", sample=sample)
     assert (episode.commands, episode.searches) == (2, 1)
-    assert (Episode(stop_reason="error").turns, Episode(stop_reason="error").commands) == (0, 0)
 
 
 class TestGeneratorOutput:

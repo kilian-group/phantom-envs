@@ -1,8 +1,9 @@
 #!/usr/bin/env -S uv run python
 """Evaluate a chat-completions API model (e.g. on OpenRouter) as the terminal agent, inside the pi harness.
 
-One episode per validation question: pi runs in a bwrap sandbox over the data dir's corpus, with the
-budgets of the SkyRL terminal evals, and its model calls are answered by the API. The API key stays on
+One episode per validation question: pi runs in a bwrap sandbox over the data dir's corpus (or with a
+search tool over it), with the budgets of the SkyRL terminal evals, and its model calls are answered by
+the API. The API key stays on
 the host; the sandbox has no network. Writes one row per episode, with the whole conversation and the
 API's token counts (see phantom_envs.terminal.evals):
 
@@ -14,6 +15,14 @@ Usage:
     uv run --extra tinker --env-file .env python scripts/eval_api.py --data_dir data/hp500 \\
         --model qwen/qwen4-max --reasoning off --out_dir out__eval=hp500__pi \\
         [--limit 10] [--concurrency 32]
+
+    # With the search tool: start the retrieval MCP server on a Unix socket, then point the eval at it.
+    # The eval waits for the server to load its index before the first episode.
+    uv run --extra skyrl --with faiss-cpu==1.12.0 python -m phantom_envs.retriever.mcp_server \\
+        --retriever qwen3-4b --data_dir data/hp500 port=0 socket=/tmp/retriever.sock &
+    uv run --extra tinker --env-file .env python scripts/eval_api.py --data_dir data/hp500 \\
+        --model qwen/qwen4-max --out_dir out__eval=hp500__pi_search \\
+        --tools bash+search --mcp_socket /tmp/retriever.sock
 
 The API defaults to OpenRouter with OPENROUTER_API_KEY; --base_url and --api_key_env point it at any
 OpenAI-compatible server. SANDBOX_ROOTFS names the sandbox image (scripts/sandbox/build_rootfs.sh).
@@ -39,11 +48,11 @@ from phantom_envs._types import Task
 from phantom_envs.runs import compact_model_slug
 from phantom_envs.scoring import METRICS
 from phantom_envs.tasks import load_tasks
+from phantom_envs.terminal.agent import AgentSetup
 from phantom_envs.terminal.bridge import BridgedEpisode
 from phantom_envs.terminal.evals import EpisodeDump, aggregate, episode_row
-from phantom_envs.terminal.harness import SCORED_STOP_REASONS
-from phantom_envs.terminal.pi import PiHarness
-from phantom_envs.terminal.task import build_instruction, verify
+from phantom_envs.terminal.harness import SCORED_STOP_REASONS, is_mcp_tool
+from phantom_envs.terminal.task import TOOLSETS, verify
 
 # Statuses worth retrying: rate limits, timeouts and server errors
 RETRY_STATUSES: frozenset[int] = frozenset({408, 429, 500, 502, 503, 504, 524, 529})
@@ -146,18 +155,16 @@ def add_usage(total: dict[str, float], usage: dict[str, Any] | None) -> None:
     total["cost"] += usage.get("cost") or 0.0
 
 
-async def run_episode(api: ChatApi, executor: Executor, args: argparse.Namespace, task: Task) -> dict:
+async def run_episode(
+    api: ChatApi, agent: AgentSetup, executor: Executor, args: argparse.Namespace, task: Task
+) -> dict:
     """Run one question's episode and return its dump row.
 
     The conversation sent to the API is kept here, with each reply exactly as the API returned it
     (reasoning included); pi's requests add only its tool results.
     """
     episode = BridgedEpisode(
-        PiHarness(max_turns=args.max_turns, command_timeout=args.command_timeout),
-        str(Path(args.data_dir) / "corpus.jsonl"),
-        rootfs=args.rootfs,
-        command_timeout=args.command_timeout,
-        memory_gib=args.memory_gib,
+        agent,
         context_window=args.max_input_length + args.max_tokens,
         max_tokens=args.max_tokens,
         executor=executor,
@@ -165,7 +172,7 @@ async def run_episode(api: ChatApi, executor: Executor, args: argparse.Namespace
     usage = dict.fromkeys(USAGE_KEYS, 0.0)
     stop_reason = "stop"
     try:
-        request = await episode.start(build_instruction(task.question))
+        request = await episode.start(task.question)
         messages, tools = list(request["messages"]), request.get("tools")
         while True:
             response = await api.complete(messages, tools)
@@ -190,14 +197,26 @@ async def run_episode(api: ChatApi, executor: Executor, args: argparse.Namespace
     scored = stop_reason in SCORED_STOP_REASONS
     scores = verify(answer, task.answers, task.data_source) if scored else dict.fromkeys(METRICS, 0.0)
     turns = [m for m in messages if m["role"] == "assistant"]
-    commands = sum(len(m.get("tool_calls") or []) for m in turns)
-    row = episode_row(task, answer, scores, stop_reason, len(turns), commands)
-    return row | {"usage": usage, "messages": messages}
+    calls = [call["function"]["name"] for m in turns for call in m.get("tool_calls") or []]
+    row = episode_row(task, answer, scores, stop_reason, len(turns), len(calls))
+    searches = sum(is_mcp_tool(name) for name in calls)
+    return row | {"num_searches": searches, "usage": usage, "messages": messages}
 
 
 async def main(args: argparse.Namespace) -> None:
     """Run the eval's missing episodes and write the dump and the aggregated results."""
     tasks = load_tasks(args.data_dir, "validation")[: args.limit]
+    # One agent for every episode, built and checked before the first one
+    agent = AgentSetup(
+        corpus_path=str(Path(args.data_dir) / "corpus.jsonl"),
+        rootfs=args.rootfs,
+        tools=args.tools,
+        mcp_socket=args.mcp_socket,
+        max_turns=args.max_turns,
+        command_timeout=args.command_timeout,
+        memory_gib=args.memory_gib,
+    )
+    await asyncio.to_thread(agent.wait_for_servers)
     dump = EpisodeDump(args.out_dir, args.name or compact_model_slug(args.model), tasks[0].data_source)
     todo = dump.todo(tasks)
     print(f"{args.model} on {args.data_dir}: {len(todo)} of {len(tasks)} episodes to run", flush=True)
@@ -215,7 +234,7 @@ async def main(args: argparse.Namespace) -> None:
                     if api.refused:
                         return
                     try:
-                        row = await run_episode(api, executor, args, task)
+                        row = await run_episode(api, agent, executor, args, task)
                     except Exception as error:  # noqa: BLE001 (the episode stays undone for a rerun)
                         failures.append(f"{task.id}: {type(error).__name__}: {str(error)[:200]}")
                         return
@@ -258,6 +277,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--rootfs", default=os.environ.get("SANDBOX_ROOTFS", ""), help="The bwrap sandbox's image"
     )
+    parser.add_argument(
+        "--tools",
+        choices=TOOLSETS,
+        default="bash",
+        help="The agent's tools: bash over the corpus as files, or a search tool (needs --mcp_socket)",
+    )
+    parser.add_argument("--mcp_socket", default="", help="Unix socket of the retrieval MCP server")
     parser.add_argument(
         "--reasoning",
         choices=["off", "on", "default"],

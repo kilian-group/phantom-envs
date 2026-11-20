@@ -32,24 +32,25 @@ from tinker_cookbook.rl.types import Env, EnvGroupBuilder, RLDataset, RLDatasetB
 from tinker_cookbook.tokenizer_utils import get_tokenizer
 
 from phantom_envs._types import Task
-from phantom_envs.integrations.tinker.harness import HarnessMessageEnv, TerminalEnvConfig
+from phantom_envs.integrations.tinker.harness import HarnessMessageEnv, TerminalEnvConfig, agent_setup
 from phantom_envs.tasks import load_tasks
+from phantom_envs.terminal.agent import AgentSetup
 
 
 class TerminalEnvGroupBuilder(EnvGroupBuilder):
     """`group_size` episodes of one task, each in its own sandbox over the same corpus."""
 
-    def __init__(self, task: Task, corpus_path: str, env: TerminalEnvConfig, group_size: int) -> None:
+    def __init__(self, task: Task, agent: AgentSetup, env: TerminalEnvConfig, group_size: int) -> None:
         """Store the settings; make_envs builds everything else, in the rollout worker.
 
         Args:
             task: The task.
-            corpus_path: corpus.jsonl that the sandboxes hold under /corpus.
+            agent: The agent every episode runs (see `agent_setup`).
             env: Episode settings.
             group_size: Number of episodes.
         """
         self.task = task
-        self.corpus_path = corpus_path
+        self.agent = agent
         self.env = env
         self.group_size = group_size
         self.message_envs: list[HarnessMessageEnv] = []
@@ -59,7 +60,7 @@ class TerminalEnvGroupBuilder(EnvGroupBuilder):
         env = self.env
         renderer = renderers.get_renderer(env.renderer_name, get_tokenizer(env.model_name))
         self.message_envs = [
-            HarnessMessageEnv(self.task, self.corpus_path, env, renderer) for _ in range(self.group_size)
+            HarnessMessageEnv(self.task, self.agent, env, renderer) for _ in range(self.group_size)
         ]
         return [
             EnvFromMessageEnv(
@@ -88,19 +89,19 @@ class TerminalDataset(RLDataset):
     """Batches of `batch_size` tasks, in order, each task a group of `group_size` episodes."""
 
     def __init__(
-        self, tasks: list[Task], corpus_path: str, env: TerminalEnvConfig, batch_size: int, group_size: int
+        self, tasks: list[Task], agent: AgentSetup, env: TerminalEnvConfig, batch_size: int, group_size: int
     ) -> None:
         """Store the tasks; get_batch makes the group builders.
 
         Args:
             tasks: The tasks, in batch order.
-            corpus_path: corpus.jsonl that the sandboxes hold.
+            agent: The agent every episode runs.
             env: Episode settings.
             batch_size: Tasks per batch (the last batch may be smaller).
             group_size: Episodes per task.
         """
         self.tasks = tasks
-        self.corpus_path = corpus_path
+        self.agent = agent
         self.env = env
         self.batch_size = batch_size
         self.group_size = group_size
@@ -108,7 +109,7 @@ class TerminalDataset(RLDataset):
     def get_batch(self, index: int) -> Sequence[EnvGroupBuilder]:
         """Return the group builders of batch `index`."""
         tasks = self.tasks[index * self.batch_size : (index + 1) * self.batch_size]
-        return [TerminalEnvGroupBuilder(t, self.corpus_path, self.env, self.group_size) for t in tasks]
+        return [TerminalEnvGroupBuilder(t, self.agent, self.env, self.group_size) for t in tasks]
 
     def __len__(self) -> int:
         return math.ceil(len(self.tasks) / self.batch_size)
@@ -129,11 +130,13 @@ class TerminalDatasetBuilder(RLDatasetBuilder):
 
     async def __call__(self) -> tuple[TerminalDataset, TerminalDataset | None]:
         """Build the training dataset and, unless `num_eval_tasks` is 0, the eval dataset."""
-        corpus_path = str(Path(self.data_dir) / "corpus.jsonl")
+        # One agent for the whole run: a bad setting fails here, not in every episode
+        agent = agent_setup(self.env, str(Path(self.data_dir) / "corpus.jsonl"))
+        await asyncio.to_thread(agent.wait_for_servers)
         train_tasks = load_tasks(self.data_dir, "train")
         random.Random(self.seed).shuffle(train_tasks)
-        train = TerminalDataset(train_tasks, corpus_path, self.env, self.batch_size, self.group_size)
+        train = TerminalDataset(train_tasks, agent, self.env, self.batch_size, self.group_size)
         if self.num_eval_tasks == 0:
             return train, None
         eval_tasks = load_tasks(self.data_dir, "validation")[: self.num_eval_tasks]
-        return train, TerminalDataset(eval_tasks, corpus_path, self.env, self.batch_size, group_size=1)
+        return train, TerminalDataset(eval_tasks, agent, self.env, self.batch_size, group_size=1)

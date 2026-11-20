@@ -32,7 +32,7 @@ from phantom_envs.integrations.tinker.dataset import (  # noqa: E402
     TerminalDatasetBuilder,
     TerminalEnvGroupBuilder,
 )
-from phantom_envs.integrations.tinker.harness import TerminalEnvConfig  # noqa: E402
+from phantom_envs.integrations.tinker.harness import TerminalEnvConfig, agent_setup  # noqa: E402
 from phantom_envs.tasks import write_tasks  # noqa: E402
 
 QWEN = "Qwen/Qwen3.5-9B"
@@ -101,7 +101,7 @@ def rootfs() -> str:
 
 def group(data_dir, rootfs: str = "", group_size: int = 2, max_turns: int = 5) -> TerminalEnvGroupBuilder:
     env = TerminalEnvConfig(model_name=LOCAL_QWEN, rootfs=rootfs, max_turns=max_turns)
-    return TerminalEnvGroupBuilder(TASK, str(data_dir / "corpus.jsonl"), env, group_size)
+    return TerminalEnvGroupBuilder(TASK, agent_setup(env, str(data_dir / "corpus.jsonl")), env, group_size)
 
 
 def test_group_builder_pickles(data_dir):

@@ -37,10 +37,10 @@ from tinker_cookbook.third_party.openai_compat import (
 )
 
 from phantom_envs._types import Task
+from phantom_envs.terminal.agent import AgentSetup
 from phantom_envs.terminal.bridge import BridgedEpisode
-from phantom_envs.terminal.harness import SCORED_STOP_REASONS, Harness
-from phantom_envs.terminal.pi import PiHarness
-from phantom_envs.terminal.task import build_instruction, has_answer, verify
+from phantom_envs.terminal.harness import SCORED_STOP_REASONS
+from phantom_envs.terminal.task import BASH, has_answer, verify
 
 # Roles whose messages are instructions rather than turns of the conversation
 SYSTEM_ROLES: tuple[str, ...] = ("system", "developer")
@@ -60,6 +60,14 @@ class TerminalEnvConfig:
     )
     harness: str = chz.field(default="pi", doc="The coding agent that runs the episode's loop: pi.")
     rootfs: str = chz.field(default="", doc="Root filesystem of the bwrap sandbox (SANDBOX_ROOTFS).")
+    tools: str = chz.field(
+        default=BASH,
+        doc="The agent's tools: bash (over the corpus as files), bash+search or search (the retrieval MCP "
+        "server's search tool, and no corpus in the sandbox).",
+    )
+    mcp_socket: str = chz.field(
+        default="", doc="Unix socket of the retrieval MCP server, for the search tool."
+    )
     system_prompt: str | None = chz.field(
         default=None, doc="Replaces the harness's own system prompt; None keeps it."
     )
@@ -78,15 +86,31 @@ class TerminalEnvConfig:
     )
 
 
-def make_harness(env: TerminalEnvConfig) -> Harness:
-    """Build the harness that `env.harness` names, under the episode's budgets."""
+def agent_setup(env: TerminalEnvConfig, corpus_path: str) -> AgentSetup:
+    """Return the agent that every episode of a run is: its harness, tools and budgets.
+
+    Args:
+        env: Episode settings; `env.harness` must be pi.
+        corpus_path: corpus.jsonl of the run's data dir.
+
+    Returns:
+        The agent.
+
+    Raises:
+        ValueError: For an unknown harness, or the search tool without an MCP socket.
+    """
     if env.harness != "pi":
         raise ValueError(f"Unknown harness {env.harness!r} (expected pi)")
-    return PiHarness(
+    return AgentSetup(
+        corpus_path=corpus_path,
+        rootfs=env.rootfs,
+        tools=env.tools,
+        mcp_socket=env.mcp_socket,
         max_turns=env.max_turns,
         command_timeout=env.command_timeout,
         max_output_chars=env.max_output_chars,
         episode_timeout=env.episode_timeout,
+        memory_gib=env.memory_gib,
         system_prompt=env.system_prompt,
     )
 
@@ -140,13 +164,13 @@ class HarnessMessageEnv(MessageEnv):
     """One terminal episode whose turns a harness asks for, at the message level."""
 
     def __init__(
-        self, task: Task, corpus_path: str, env: TerminalEnvConfig, renderer: renderers.Renderer
+        self, task: Task, agent: AgentSetup, env: TerminalEnvConfig, renderer: renderers.Renderer
     ) -> None:
         """Set up the episode; `initial_observation` starts the sandbox and the harness.
 
         Args:
             task: The task.
-            corpus_path: corpus.jsonl that the sandbox holds under /corpus.
+            agent: The agent: its harness, tools and sandbox (see `agent_setup`).
             env: Episode settings.
             renderer: The renderer that declares the harness's tools.
         """
@@ -154,11 +178,7 @@ class HarnessMessageEnv(MessageEnv):
         self.env = env
         self.renderer = renderer
         self.episode = BridgedEpisode(
-            make_harness(env),
-            corpus_path,
-            rootfs=env.rootfs,
-            command_timeout=env.command_timeout,
-            memory_gib=env.memory_gib,
+            agent,
             context_window=env.max_input_length + env.max_tokens,
             max_tokens=env.max_tokens,
             executor=EXECUTOR,
@@ -171,7 +191,7 @@ class HarnessMessageEnv(MessageEnv):
 
     async def initial_observation(self) -> list[renderers.Message]:
         """Start the harness and return the conversation its first model call opens with."""
-        request = await self.episode.start(build_instruction(self.task.question))
+        request = await self.episode.start(self.task.question)
         system_prompt = "\n\n".join(
             text_of(m["content"]) for m in request["messages"] if m["role"] in SYSTEM_ROLES
         )
@@ -205,6 +225,8 @@ class HarnessMessageEnv(MessageEnv):
         metrics = {
             "num_turns": self.turns,
             "num_commands": self.commands,
+            # Calls to an MCP server's tool: the search tool
+            "num_searches": run.mcp_calls,
             # Separates learning the output format from learning to search
             "answered": float(has_answer(answer)),
             "harness_error": float(run.stop_reason == "error"),

@@ -4,12 +4,12 @@ A harness calls its model through an OpenAI-compatible endpoint. Some trainers s
 skycap); others, like tinker-cookbook's loop, sample every turn themselves, and an eval of an API model
 keeps the API key out of the sandbox. For those, `ChatBridge` turns the harness's calls around: each
 chat request is handed to the caller, who answers it with the next turn. `BridgedEpisode` runs a whole
-episode this way: sandbox, harness, bridge and answer file.
+episode of an `agent.AgentSetup` this way: sandbox, harness, bridge and answer file.
 
 Usage:
 
-    episode = BridgedEpisode(PiHarness(max_turns=20), corpus_path, rootfs=rootfs)
-    request = await episode.start(build_instruction(question))   # the first chat request
+    episode = BridgedEpisode(AgentSetup(corpus_path, rootfs))
+    request = await episode.start(question)                      # the first chat request
     messages = request["messages"]                               # system prompt and task
     while True:
         turn = ...                                  # the next assistant message, from any model
@@ -29,9 +29,9 @@ from typing import Any
 
 from aiohttp import web
 
+from phantom_envs.terminal.agent import AgentSetup
 from phantom_envs.terminal.bwrap import BwrapSandbox
-from phantom_envs.terminal.harness import Harness, HarnessRun, ModelEndpoint, run_harness
-from phantom_envs.terminal.sandbox import open_sandbox
+from phantom_envs.terminal.harness import HarnessRun, ModelEndpoint, run_harness
 
 # The model name the harness requests; the caller decides which model answers
 MODEL_NAME: str = "policy"
@@ -155,12 +155,8 @@ class BridgedEpisode:
 
     def __init__(
         self,
-        harness: Harness,
-        corpus_path: str,
+        agent: AgentSetup,
         *,
-        rootfs: str,
-        command_timeout: float = 60.0,
-        memory_gib: int = 4,
         context_window: int = 32768,
         max_tokens: int = 2048,
         executor: Executor | None = None,
@@ -168,20 +164,13 @@ class BridgedEpisode:
         """Set up the episode; `start` opens the sandbox and starts the harness.
 
         Args:
-            harness: The harness.
-            corpus_path: corpus.jsonl that the sandbox holds under /corpus.
-            rootfs: Root filesystem of the bwrap sandbox.
-            command_timeout: Wall-clock limit per command, in seconds.
-            memory_gib: Memory limit of each process in the sandbox, in GiB.
+            agent: The agent: its harness, tools, sandbox and task.
             context_window: Most tokens of a prompt plus its turn, as the harness is told.
             max_tokens: Most tokens per turn, as the harness is told.
             executor: Where the sandbox and the harness block; the event loop's default if None.
         """
-        self.harness = harness
-        self.corpus_path = corpus_path
-        self.rootfs = rootfs
-        self.command_timeout = command_timeout
-        self.memory_gib = memory_gib
+        self.agent = agent
+        self.harness = agent.harness()
         self.context_window = context_window
         self.max_tokens = max_tokens
         self.executor = executor
@@ -189,11 +178,11 @@ class BridgedEpisode:
         self.sandbox: BwrapSandbox | None = None
         self.run: asyncio.Task[HarnessRun] | None = None
 
-    async def start(self, instruction: str) -> dict[str, Any]:
-        """Open the sandbox, start the harness, and wait for its first model call.
+    async def start(self, question: str) -> dict[str, Any]:
+        """Open the sandbox, start the harness on the question, and wait for its first model call.
 
         Args:
-            instruction: The task, as `task.build_instruction` writes it.
+            question: The question; the agent gets it in the task text for its tools.
 
         Returns:
             The first chat request's JSON body: the harness's system prompt and the task in
@@ -203,23 +192,18 @@ class BridgedEpisode:
             RuntimeError: If the harness exits before its first model call.
         """
         loop = asyncio.get_running_loop()
-        self.sandbox = await loop.run_in_executor(
-            self.executor,
-            open_sandbox,
-            "bwrap",
-            self.corpus_path,
-            self.command_timeout,
-            self.memory_gib,
-            self.rootfs,
-        )
+        self.sandbox = await loop.run_in_executor(self.executor, self.agent.open_sandbox)
         endpoint = ModelEndpoint(
             base_url=await self.bridge.start(),
             model=MODEL_NAME,
             context_window=self.context_window,
             max_tokens=self.max_tokens,
         )
+        instruction = self.agent.instruction(question)
         self.run = asyncio.create_task(
-            run_harness(self.harness, self.sandbox, instruction, endpoint, self.executor)
+            run_harness(
+                self.harness, self.sandbox, instruction, endpoint, self.executor, self.agent.mcp_servers
+            )
         )
         request = await self.bridge.next_request(unless=self.run)
         if request is None:

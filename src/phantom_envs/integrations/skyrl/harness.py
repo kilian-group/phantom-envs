@@ -57,19 +57,16 @@ from skyrl.train.generators.utils import (
 )
 from transformers import PreTrainedTokenizerBase
 
-from phantom_envs.retriever.search_tool import SERVER_NAME, TOOL_NAME
+from phantom_envs.terminal.agent import AgentSetup
 from phantom_envs.terminal.harness import (
     SCORED_STOP_REASONS,
     Harness,
     HarnessRun,
-    McpServer,
     ModelEndpoint,
-    mcp_mounts,
+    is_mcp_tool,
     run_harness,
 )
-from phantom_envs.terminal.pi import PiHarness
-from phantom_envs.terminal.sandbox import Sandbox, open_sandbox
-from phantom_envs.terminal.task import BASH, SEARCH, build_instruction, has_answer, has_search, verify
+from phantom_envs.terminal.task import has_answer, verify
 
 # The model name a harness requests; skycap sends the engine its own name for the policy
 MODEL_NAME: str = "policy"
@@ -142,7 +139,7 @@ class Episode:
     @property
     def searches(self) -> int:
         """Calls to an MCP server's tool (the search tool) on the episode's path."""
-        return sum(name.startswith("mcp__") for name in self.tool_calls)
+        return sum(is_mcp_tool(name) for name in self.tool_calls)
 
     @property
     def tool_calls(self) -> list[str]:
@@ -279,11 +276,6 @@ class HarnessGenerator(GeneratorInterface):
             raise ValueError("A harness episode is one row: set generator.step_wise_trajectories=false")
         if engine_cfg.enable_return_routed_experts or engine_cfg.enable_return_sample_support_set:
             raise ValueError("Routed experts and sampler support are not captured with a harness")
-        if has_search(terminal_cfg.tools) and not terminal_cfg.mcp_socket:
-            raise ValueError(
-                "The search tool needs the retrieval MCP server: launch with --search=<retriever>, or set "
-                "environment.skyrl_gym.phantom_terminal.mcp_socket"
-            )
 
         self.cfg = cfg
         self.terminal_cfg = terminal_cfg
@@ -292,21 +284,19 @@ class HarnessGenerator(GeneratorInterface):
         self.max_model_len: int = (engine_cfg.engine_init_kwargs or {}).get("max_model_len") or (
             cfg.generator.max_input_length + cfg.generator.sampling_params.max_generate_length
         )
-        # The search tool comes from the retrieval MCP server; the agent can't tell which retriever
-        self.mcp_servers: list[McpServer] = []
-        if has_search(terminal_cfg.tools):
-            self.mcp_servers = [
-                McpServer(name=SERVER_NAME, socket_path=terminal_cfg.mcp_socket, tools=(TOOL_NAME,))
-            ]
-        self.harness: Harness = PiHarness(
-            # Without bash, the agent still has to write its answer file
-            tools=("write",) if terminal_cfg.tools == SEARCH else ("bash",),
+        self.agent = AgentSetup(
+            corpus_path=terminal_cfg.corpus_path,
+            rootfs=terminal_cfg.rootfs,
+            tools=terminal_cfg.tools,
+            mcp_socket=terminal_cfg.mcp_socket,
             max_turns=cfg.generator.max_turns,
             command_timeout=terminal_cfg.timeout,
             max_output_chars=terminal_cfg.max_output_chars,
             episode_timeout=terminal_cfg.episode_timeout,
+            memory_gib=terminal_cfg.memory_gib,
             system_prompt=terminal_cfg.system_prompt or None,
         )
+        self.harness: Harness = self.agent.harness()
 
     def cache_salt(self) -> str | None:
         """Return vLLM's prefix-cache salt for the weights the engines serve now, as SkyRL builds it."""
@@ -345,14 +335,15 @@ class HarnessGenerator(GeneratorInterface):
         """Run the batch's episodes, all at once, and return one row per prompt in input order.
 
         Args:
-            input_batch: SkyRL's batch: per episode a prompt (whose user message is the task) and the
-                dataset row's fields (the gold answers and the data source).
+            input_batch: SkyRL's batch: per episode the dataset row's fields (the question, the gold
+                answers and the data source). The agent words the task for its tools itself, so the
+                rows' prompts go unused.
             disable_tqdm: Accepted for SkyRL's callers; this generator shows no progress bar.
 
         Returns:
             The episodes' tokens, loss masks, logprobs and rewards.
         """
-        prompts, extras = input_batch["prompts"], input_batch["env_extras"]
+        extras = input_batch["env_extras"]
         metadata = input_batch.get("batch_metadata")
         evaluating = getattr(metadata, "training_phase", None) == TRAINING_PHASE_EVAL
         params = self.cfg.generator.eval_sampling_params if evaluating else self.cfg.generator.sampling_params
@@ -361,14 +352,11 @@ class HarnessGenerator(GeneratorInterface):
         try:
             # Each episode holds a thread while its harness runs
             with ThreadPoolExecutor(
-                max_workers=len(prompts), thread_name_prefix="harness-episode-"
+                max_workers=len(extras), thread_name_prefix="harness-episode-"
             ) as executor:
                 async with CapturePool([service.url], timeout=CAPTURE_TIMEOUT) as pool:
                     episodes = await asyncio.gather(
-                        *(
-                            self.episode(pool, executor, prompt, extra)
-                            for prompt, extra in zip(prompts, extras, strict=True)
-                        )
+                        *(self.episode(pool, executor, extra) for extra in extras)
                     )
         finally:
             await asyncio.to_thread(service.stop)
@@ -387,7 +375,6 @@ class HarnessGenerator(GeneratorInterface):
         self,
         pool: CapturePool,
         executor: Executor,
-        prompt: list[Mapping[str, Any]],
         extras: Mapping[str, Any],
     ) -> Episode:
         """Run one episode. Never raises: a failed episode must not cancel its batch.
@@ -395,15 +382,14 @@ class HarnessGenerator(GeneratorInterface):
         Args:
             pool: The capture servers' client.
             executor: Where the sandbox and the harness block.
-            prompt: The episode's opening messages; the user message is the task.
-            extras: The dataset row's fields.
+            extras: The dataset row's fields, with the question under extra_info.
 
         Returns:
             The episode's outcome.
         """
         started = time.monotonic()
         try:
-            episode = await self.attempt(pool, executor, prompt, extras)
+            episode = await self.attempt(pool, executor, extras)
         except Exception as error:  # noqa: BLE001 (reported as a failed episode)
             logger.warning(f"A harness episode failed: {type(error).__name__}: {error}")
             episode = Episode(stop_reason="error")
@@ -414,15 +400,12 @@ class HarnessGenerator(GeneratorInterface):
         self,
         pool: CapturePool,
         executor: Executor,
-        prompt: list[Mapping[str, Any]],
         extras: Mapping[str, Any],
     ) -> Episode:
         """Run one episode: sandbox, harness, verifier, and the captured tokens. See `episode`."""
         loop = asyncio.get_running_loop()
-        instruction = next(message["content"] for message in prompt if message["role"] == "user")
-        if self.terminal_cfg.tools != BASH:
-            # The dataset's prompt is the bash task; the other tool sets word the task differently
-            instruction = build_instruction(extras["extra_info"]["question"], self.terminal_cfg.tools)
+        # The task worded for the agent's tools; for bash, the same text as the dataset's prompt
+        instruction = self.agent.instruction(extras["extra_info"]["question"])
         # "final": the conversation the harness ended with, which for an append-only harness is all of it
         async with pool.trajectory({"data_source": extras["data_source"]}, paths="final") as trajectory:
             endpoint = ModelEndpoint(
@@ -432,10 +415,10 @@ class HarnessGenerator(GeneratorInterface):
                 context_window=self.max_model_len,
                 max_tokens=self.cfg.generator.sampling_params.max_generate_length,
             )
-            sandbox = await loop.run_in_executor(executor, self.open_sandbox)
+            sandbox = await loop.run_in_executor(executor, self.agent.open_sandbox)
             try:
                 run: HarnessRun = await run_harness(
-                    self.harness, sandbox, instruction, endpoint, executor, self.mcp_servers
+                    self.harness, sandbox, instruction, endpoint, executor, self.agent.mcp_servers
                 )
                 answer = await loop.run_in_executor(executor, sandbox.read_answer)
             finally:
@@ -457,17 +440,6 @@ class HarnessGenerator(GeneratorInterface):
             answer=answer if scored else None,
             sample=finished.samples[0],
             unbridged_calls=finished.unbridged_calls,
-        )
-
-    def open_sandbox(self) -> Sandbox:
-        """Open a bwrap sandbox: over the env's corpus, or with the search tool's server instead."""
-        return open_sandbox(
-            "bwrap",
-            None if has_search(self.terminal_cfg.tools) else self.terminal_cfg.corpus_path,
-            mounts=mcp_mounts(self.mcp_servers),
-            timeout=self.terminal_cfg.timeout,
-            memory_gib=self.terminal_cfg.memory_gib,
-            rootfs=self.terminal_cfg.rootfs,
         )
 
 
