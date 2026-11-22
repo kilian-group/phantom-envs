@@ -76,7 +76,7 @@ class Lookups:
         return self.related[person]
 
     def inverse_of(self, person: str) -> list[tuple[str, str]]:
-        """``(R, X)`` pairs with ``R(X, person)``, i.e. the person is X's R."""
+        """`(R, X)` pairs with `R(X, person)`, i.e. the person is X's R."""
         if person not in self.inverse:
             self.inverse[person] = [(r, x) for r in self.relations for x in self.db[r].inverse_of(person)]
         return self.inverse[person]

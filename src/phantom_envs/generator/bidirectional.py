@@ -2,7 +2,7 @@
 
 Backward sampling always starts at the chain's far end, so the answer's neighborhood is reached
 only through long walks. Here the anchor is a random position of the chain: toward the answer the
-walk follows relations forward (``R("known", A)``), toward the far end it follows them in
+walk follows relations forward (`R("known", A)`), toward the far end it follows them in
 reverse (`R(A, "known")`), both through `Lookups`.
 """
 

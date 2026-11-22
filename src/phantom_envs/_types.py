@@ -37,6 +37,13 @@ class EnvConfig:
     )
     size: int = field(default=1000, metadata={"description": "Target number of people (a multiple of 10)."})
     seed: int = field(default=1, metadata={"description": "Seed for the universe and the questions."})
+    friendship_degree: float = field(
+        default=0.5,
+        metadata={
+            "description": "Average number of friends per person (PhantomWiki has 3). Friendships link "
+            "the family trees; above about 1, questions over several hops get many answers."
+        },
+    )
     max_hops: int = field(default=6, metadata={"description": "Most relation hops in a question."})
     max_constraints: int = field(
         default=1, metadata={"description": "Most attribute constraints in a question."}

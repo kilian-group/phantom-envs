@@ -26,15 +26,14 @@ sampler picks a person's relatives by position in these lists, so:
 - a pair listed twice is drawn twice as often. Full siblings are listed once per shared parent,
   a married couple once per child, and so on. Rules never remove these repeats.
 
-Each rule lists its pairs in the order SWI-Prolog enumerates the solutions of the PhantomWiki rule
-it comes from: the rule's conditions become nested loops, left to right, each over a relation in its
-own order. A seed therefore gives the same environment as PhantomWiki's Prolog generator did, which
-`tests/test_generator.py` checks against recorded content hashes.
+Each rule lists its pairs in the order SWI-Prolog enumerates the solutions of the matching
+PhantomWiki rule: the rule's conditions become nested loops, left to right, each over a relation in
+its own order. A seed therefore gives the same environment as PhantomWiki's generator (with its 3
+friends per person), which `tests/test_generator.py` checks against recorded content hashes.
 """
 
 import inspect
 from collections.abc import Callable, Iterator
-from functools import cached_property
 
 from phantom_envs.generator.vocab import PERSON_TYPE
 
@@ -44,7 +43,8 @@ Fact = tuple[str, ...]
 Rule = Callable[..., list[Pair]]
 
 # Facts with two arguments, which the database serves as relations just like the derived ones:
-# type(X, person), gender(X, G), parent(X, P), dob(X, D), friend_(X, F), job(X, J), hobby(X, H)
+# type(X, person), gender(X, G), parent(X, P), dob(X, D), friend_(X, F), job(X, J), hobby(X, H).
+# A friend_ fact states a friendship once; the relation that holds both ways is the rule "friend".
 FACT_RELATIONS = ("type", "gender", "parent", "dob", "friend_", "job", "hobby")
 # Relation name -> the rule that derives it, filled by @rule
 RULES: dict[str, Rule] = {}
@@ -58,8 +58,14 @@ def rule(function: Rule) -> Rule:
 
     Returns:
         The function, unchanged.
+
+    Raises:
+        ValueError: If a rule or a fact already has that name.
     """
-    RULES[function.__name__] = function
+    name = function.__name__
+    if name in RULES or name in FACT_RELATIONS:
+        raise ValueError(f"A rule or fact is already named {name!r}")
+    RULES[name] = function
     return function
 
 
@@ -74,8 +80,10 @@ def format_fact(fact: Fact) -> str:
     """
     predicate, *arguments = fact
     if predicate == "type":
-        # The type is the one argument written without quotes: type("Ann Smith", person)
+        # A type fact says that someone is a person, the only type there is. The type is written
+        # without quotes, unlike names and values: type("Ann Smith", person)
         return f'type("{arguments[0]}", {arguments[1]})'
+    # Every other fact quotes all its arguments: parent("Ann Smith", "Beth Smith"), attribute("chess")
     return f"{predicate}({', '.join(f'"{argument}"' for argument in arguments)})"
 
 
@@ -88,6 +96,12 @@ class Relation:
 
     def __init__(self, pairs: list[Pair]) -> None:
         self.pairs = pairs
+        # Each x with its y's, and each y with its x's, both in the order of the pairs
+        self.by_first: dict[str, list[str]] = {}
+        self.by_second: dict[str, list[str]] = {}
+        for x, y in pairs:
+            self.by_first.setdefault(x, []).append(y)
+            self.by_second.setdefault(y, []).append(x)
 
     def __iter__(self) -> Iterator[Pair]:
         return iter(self.pairs)
@@ -95,28 +109,18 @@ class Relation:
     def __len__(self) -> int:
         return len(self.pairs)
 
-    @cached_property
-    def by_first(self) -> dict[str, list[str]]:
-        """Each x with its y's, in the order of `pairs`. Built on first use."""
-        index: dict[str, list[str]] = {}
-        for x, y in self.pairs:
-            index.setdefault(x, []).append(y)
-        return index
-
-    @cached_property
-    def by_second(self) -> dict[str, list[str]]:
-        """Each y with its x's, in the order of `pairs`. Built on first use."""
-        index: dict[str, list[str]] = {}
-        for x, y in self.pairs:
-            index.setdefault(y, []).append(x)
-        return index
-
     def of(self, x: str) -> list[str]:
-        """Every y with `(x, y)` in the relation: for the mother relation, the mother of x."""
+        """Every y with `(x, y)` in the relation: for the mother relation, the mother of x.
+
+        The list is the relation's own; do not modify it.
+        """
         return self.by_first.get(x, [])
 
     def inverse_of(self, y: str) -> list[str]:
-        """Every x with `(x, y)` in the relation: for the mother relation, the people whose mother is y."""
+        """Every x with `(x, y)` in the relation: for the mother relation, the people whose mother is y.
+
+        The list is the relation's own; do not modify it.
+        """
         return self.by_second.get(y, [])
 
     def has(self, x: str, y: str) -> bool:
@@ -125,7 +129,11 @@ class Relation:
 
 
 class Database:
-    """The facts of a universe and, on demand, every relation that follows from them."""
+    """The facts of a universe and, on demand, every relation that follows from them.
+
+    The facts are a list, not a set, because their order is part of the data: it sets the order of
+    `names` and of every relation's pairs, which the seeded random draws index into.
+    """
 
     def __init__(self) -> None:
         self.facts: list[Fact] = []
@@ -152,20 +160,39 @@ class Database:
             The relation.
 
         Raises:
-            KeyError: If no rule or fact has that name.
+            KeyError: If no rule or fact has that name, or its rule reads a relation with no rule or fact.
         """
         if name not in self.relations:
             if name in RULES:
-                # A rule's parameters name the relations it reads, which are looked up the same way
-                derive = RULES[name]
-                inputs = [self[parameter] for parameter in inspect.signature(derive).parameters]
-                pairs = derive(*inputs)
+                # A derived relation, e.g. "aunt". Its rule is the function aunt(parent, sister),
+                # whose parameter names say which relations it reads: look those up the same way
+                # (deriving "sister" in turn, if this is its first use), then run the rule on them.
+                rule_function = RULES[name]
+                parameters = inspect.signature(rule_function).parameters
+                if unknown := [p for p in parameters if p not in RULES and p not in FACT_RELATIONS]:
+                    raise KeyError(f"The rule {name!r} reads {unknown}, which no rule or fact is named")
+                pairs = rule_function(*[self[parameter] for parameter in parameters])
             elif name in FACT_RELATIONS:
+                # A relation stated by facts, e.g. "parent": the fact
+                # ("parent", "Ann Smith", "Beth Smith") gives the pair ("Ann Smith", "Beth Smith").
                 pairs = [(fact[1], fact[2]) for fact in self.facts if fact[0] == name]
             else:
+                # E.g. a misspelled name, or "attribute", whose facts have one argument
                 raise KeyError(f"No rule or fact is named {name!r}")
             self.relations[name] = Relation(pairs)
         return self.relations[name]
+
+    def derive(self, names: list[str]) -> None:
+        """Work out relations now instead of on their first use.
+
+        Call this before handing the database to worker processes: they then share the relations
+        instead of each working them out again.
+
+        Args:
+            names: The relations to work out.
+        """
+        for name in names:
+            self[name]
 
     @property
     def names(self) -> list[str]:
@@ -376,8 +403,8 @@ def children_of_related_parents(parent: Relation, related: Relation) -> list[Pai
         [(x, y) for x, a in parent for y, b in parent if related.has(a, b)]
 
     with `(x, y)` repeated when `(a, b)` is repeated in `related`. That takes time quadratic
-    in the number of people, so this reaches the same pairs through `a`'s relatives, and sorts
-    each x's matches back into the order of the parent facts.
+    in the number of people, so this reaches the same parent facts through `a`'s relatives, and
+    sorts each x's matches back into the order of the parent facts.
 
     Args:
         parent: The parent facts.
@@ -387,10 +414,14 @@ def children_of_related_parents(parent: Relation, related: Relation) -> list[Pai
         The pairs `(x, y)`, in the order (and with the repeats) of the plain loop. It includes
         `(x, x)` where a person's two parents are related, which the rules filter out.
     """
-    position = {fact: i for i, fact in enumerate(parent)}
+    # Each person's children, with the position of the parent fact that states each
+    children: dict[str, list[tuple[int, str]]] = {}
+    for position, (y, b) in enumerate(parent):
+        children.setdefault(b, []).append((position, y))
+
     pairs = []
     for x, a in parent:
-        matches = sorted((position[(y, b)], y) for b in related.of(a) for y in parent.inverse_of(b))
+        matches = sorted(child for b in related.of(a) for child in children.get(b, []))
         pairs += [(x, y) for _, y in matches]
     return pairs
 
@@ -414,17 +445,21 @@ def male_cousin(cousin: Relation, gender: Relation) -> list[Pair]:
 
 
 @rule
-def female_second_cousin(parent: Relation, cousin: Relation, gender: Relation) -> list[Pair]:
-    """Y is a female second cousin of X: their parents are cousins."""
-    second_cousins = children_of_related_parents(parent, cousin)
-    return [(x, y) for x, y in second_cousins if gender.has(y, "female") and x != y]
+def second_cousin(parent: Relation, cousin: Relation) -> list[Pair]:
+    """Y is a second cousin of X: their parents are cousins."""
+    return [(x, y) for x, y in children_of_related_parents(parent, cousin) if x != y]
 
 
 @rule
-def male_second_cousin(parent: Relation, cousin: Relation, gender: Relation) -> list[Pair]:
-    """Y is a male second cousin of X: their parents are cousins."""
-    second_cousins = children_of_related_parents(parent, cousin)
-    return [(x, y) for x, y in second_cousins if gender.has(y, "male") and x != y]
+def female_second_cousin(second_cousin: Relation, gender: Relation) -> list[Pair]:
+    """Y is a female second cousin of X."""
+    return [(x, y) for x, y in second_cousin if gender.has(y, "female")]
+
+
+@rule
+def male_second_cousin(second_cousin: Relation, gender: Relation) -> list[Pair]:
+    """Y is a male second cousin of X."""
+    return [(x, y) for x, y in second_cousin if gender.has(y, "male")]
 
 
 @rule
@@ -483,5 +518,9 @@ def brother_in_law(married: Relation, brother: Relation) -> list[Pair]:
 #
 @rule
 def friend(friend_: Relation) -> list[Pair]:
-    """Y is a friend of X. A `friend_` fact states each friendship once; this lists it both ways."""
+    """Y is a friend of X.
+
+    A `friend_` fact states a friendship once, as (X, Y) or as (Y, X). This lists it both ways, so
+    that each is the other's friend.
+    """
     return friend_.pairs + [(y, x) for x, y in friend_]
