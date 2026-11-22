@@ -1,9 +1,10 @@
 """Generate a PhantomEnvs environment: a fictional universe, its articles, and train / validation tasks.
 
-Needs SWI-Prolog (``swipl``) on PATH. Output layout of ``output_dir``::
+Output layout of `output_dir`:
 
     phantom_env.json            manifest: config, content hash, task counts per cell
-    universe/facts.pl           the universe as Prolog facts (rules: phantom_envs/generator/rules/)
+    universe/facts.pl           the universe's facts, in Prolog syntax (the relations that follow from
+                                them: phantom_envs/generator/relations.py)
     universe/articles.json      one article per person: {"title", "article", "facts"}, plus "template"
                                 when rewritten with an LLM (EnvConfig.rewrite_docs_with_llm)
     corpus.jsonl                the articles as the retriever's corpus
@@ -132,7 +133,7 @@ def write_env(
 
     Args:
         output_dir: The environment's data dir.
-        facts: Prolog facts, without the trailing period.
+        facts: The universe's facts in Prolog syntax, without the trailing period.
         articles: ``{"title", "article", "facts"}`` per person.
         tasks: All tasks, in generation order.
         split: How to split them.
@@ -171,14 +172,13 @@ def write_env(
 
 
 def generate(
-    output_dir: str | Path, config: EnvConfig | str = "pw", *, workers: int = 8, overwrite: bool = False
+    output_dir: str | Path, config: EnvConfig | str = "pw", *, overwrite: bool = False
 ) -> PhantomEnv:
     """Generate an environment into ``output_dir``.
 
     Args:
         output_dir: Where to write it (see the module docstring for the layout).
         config: An :class:`EnvConfig`, or the name of a preset in :data:`PRESETS`.
-        workers: Processes for Prolog queries; the output does not depend on it.
         overwrite: Replace an existing environment in ``output_dir``.
 
     Returns:
@@ -188,10 +188,10 @@ def generate(
         ValueError: If ``size`` is not a multiple of the family tree size (10).
         FileExistsError: If ``output_dir`` has an environment and ``overwrite`` is False.
     """
-    # Imported here so that the package imports without pyswip and SWI-Prolog
+    # Imported here so that loading an environment does not import the generator's libraries
     from phantom_envs.generator.articles import build_articles
-    from phantom_envs.generator.prolog import Database
     from phantom_envs.generator.questions import sample_questions
+    from phantom_envs.generator.relations import format_fact
     from phantom_envs.generator.universe import FAMILY_TREE_SIZE, build_universe
 
     config = PRESETS[config] if isinstance(config, str) else config
@@ -202,15 +202,13 @@ def generate(
         raise FileExistsError(f"{output_dir} already has an environment; pass overwrite=True to replace it")
 
     # Universe, articles, then questions about it
-    db = Database()
-    facts = build_universe(db, config.size, config.seed)
-    if config.sampler == "bidirectional":
-        db.add_inverse_relations()
-    articles = build_articles(db, workers)
+    db = build_universe(config.size, config.seed)
+    articles = build_articles(db)
     manifest = {"config": asdict(config)}
     if config.rewrite_docs_with_llm:
         from phantom_envs.generator.rewrite import rewrite_articles
 
         articles, manifest["rewrite"] = rewrite_articles(articles, config.rewrite_docs_with_llm)
-    tasks = [to_task(q, config.name) for q in sample_questions(db, config, workers)]
+    tasks = [to_task(q, config.name) for q in sample_questions(db, config)]
+    facts = [format_fact(fact) for fact in db.facts]
     return write_env(output_dir, facts, articles, tasks, config.split, manifest)

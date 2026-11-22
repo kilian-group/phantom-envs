@@ -14,7 +14,7 @@ from importlib.resources import files
 import networkx as nx
 from numpy.random import default_rng
 
-from phantom_envs.generator.prolog import Database
+from phantom_envs.generator.relations import Database, Fact
 from phantom_envs.generator.vocab import PERSON_TYPE
 
 FAMILY_TREE_SIZE = 10
@@ -321,25 +321,25 @@ def sample_family_tree(factory: PersonFactory, rng: random.Random) -> list[Perso
             return tree
 
 
-def family_facts(tree: list[Person]) -> list[str]:
-    """Prolog facts of a family tree.
+def family_facts(tree: list[Person]) -> list[Fact]:
+    """The facts of a family tree.
 
     Args:
         tree: The tree's people.
 
     Returns:
-        ``type``, ``gender``, ``parent`` and ``dob`` facts (without periods), each group sorted.
+        `type`, `gender`, `parent` and `dob` facts, each group sorted.
     """
     people, genders, parents, dobs = [], [], [], []
     for p in tree:
-        people.append(f'type("{p.full_name()}", {PERSON_TYPE})')
-        genders.append(f'gender("{p.full_name()}", "{"female" if p.female else "male"}")')
-        parents += [f'parent("{c.full_name()}", "{p.full_name()}")' for c in p.children]
-        dobs.append(f'dob("{p.full_name()}", "{p.date_of_birth}")')
+        people.append(("type", p.full_name(), PERSON_TYPE))
+        genders.append(("gender", p.full_name(), "female" if p.female else "male"))
+        parents += [("parent", c.full_name(), p.full_name()) for c in p.children]
+        dobs.append(("dob", p.full_name(), str(p.date_of_birth)))
     return sorted(people) + sorted(genders) + sorted(parents) + sorted(dobs)
 
 
-def friendship_facts(names: list[str], seed: int) -> list[str]:
+def friendship_facts(names: list[str], seed: int) -> list[Fact]:
     """Friendships from an Erdős–Rényi G(n, p) graph with ``FRIENDSHIP_DEGREE`` friends on average.
 
     Args:
@@ -347,15 +347,15 @@ def friendship_facts(names: list[str], seed: int) -> list[str]:
         seed: Seed for the graph.
 
     Returns:
-        ``friend_`` facts (without periods); ``friend`` makes them symmetric.
+        One `friend_` fact per friendship; the `friend` rule lists it both ways.
     """
     graph = nx.fast_gnp_random_graph(n=len(names), p=FRIENDSHIP_DEGREE / len(names), seed=seed)
-    # Relabeling rebuilds the graph, which can reorder its edges (and so Prolog's answers)
+    # Relabeling rebuilds the graph, which can reorder its edges (and so each person's friends)
     graph = nx.relabel_nodes(graph, dict(enumerate(names)))
-    return [f'friend_("{a}", "{b}")' for a, b in graph.edges]
+    return [("friend_", a, b) for a, b in graph.edges]
 
 
-def attribute_facts(names: list[str], seed: int) -> list[str]:
+def attribute_facts(names: list[str], seed: int) -> list[Fact]:
     """A job and a hobby for each person.
 
     Args:
@@ -363,43 +363,39 @@ def attribute_facts(names: list[str], seed: int) -> list[str]:
         seed: Seed for the draws (jobs and hobbies each start from it).
 
     Returns:
-        ``job``, ``hobby`` and ``attribute`` facts (without periods).
+        `job` and `hobby` facts, each followed by an `attribute` fact naming the value.
     """
     jobs, hobbies = load_data("jobs"), load_data("hobbies")
     job_rng, hobby_rng = default_rng(seed), default_rng(seed)
-    job_of = {name: job_rng.choice(jobs) for name in names}
+    job_of = {name: str(job_rng.choice(jobs)) for name in names}
     # A hobby category first, then a hobby in it
-    hobby_of = {name: hobby_rng.choice(hobbies[hobby_rng.choice(list(hobbies))]) for name in names}
+    hobby_of = {name: str(hobby_rng.choice(hobbies[hobby_rng.choice(list(hobbies))])) for name in names}
     facts = []
     for name in names:
-        facts += [f'job("{name}", "{job_of[name]}")', f'attribute("{job_of[name]}")']
-        facts += [f'hobby("{name}", "{hobby_of[name]}")', f'attribute("{hobby_of[name]}")']
+        facts += [("job", name, job_of[name]), ("attribute", job_of[name])]
+        facts += [("hobby", name, hobby_of[name]), ("attribute", hobby_of[name])]
     return facts
 
 
-def build_universe(db: Database, size: int, seed: int) -> list[str]:
-    """Generate a universe of about ``size`` people into a database.
+def build_universe(size: int, seed: int) -> Database:
+    """Generate a universe of about `size` people.
 
     Args:
-        db: An empty database.
         size: Target number of people, a multiple of ``FAMILY_TREE_SIZE``. Spouses push a tree past it.
         seed: Seed for the family trees, the friendships and the attributes.
 
     Returns:
-        The facts added (without periods), in order.
+        A database holding the universe's facts.
     """
     # Family trees, all drawing from one generator
+    db = Database()
     rng = random.Random(seed)
     factory = PersonFactory(rng)
-    family = []
     for _ in range(size // FAMILY_TREE_SIZE):
-        family += family_facts(sample_family_tree(factory, rng))
-    db.add(*family)
+        db.add(*family_facts(sample_family_tree(factory, rng)))
 
     # Friendships and attributes over everyone, in database order
-    names = db.person_names()
-    friends = friendship_facts(names, seed)
-    db.add(*friends)
-    attributes = attribute_facts(names, seed)
-    db.add(*attributes)
-    return family + friends + attributes
+    names = db.names
+    db.add(*friendship_facts(names, seed))
+    db.add(*attribute_facts(names, seed))
+    return db

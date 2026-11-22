@@ -17,7 +17,7 @@ trained in these worlds transfer to real-world multi-hop QA.
 </p>
 
 Each environment is a fictional universe of people, written out as one article per person, plus
-questions whose answers are computed by Prolog. The agent searches the articles with
+questions whose answers are computed from the universe's facts. The agent searches the articles with
 `<search>query</search>`, reads the `<information>` that comes back, and ends with
 `<answer>...</answer>`, rewarded on the final answer. Or, in a terminal with the [pi](https://pi.dev)
 harness, it finds the articles with a search tool served over MCP, works with bash in a sandbox, and
@@ -43,11 +43,6 @@ writes its answer to a file.
 ## Installation
 
 ```bash
-# SWI-Prolog, to generate environments. On Ubuntu:
-sudo add-apt-repository -y ppa:swi-prolog/stable && sudo apt-get install -y swi-prolog-nox
-# ...or without root, in a conda env of its own (activate it while generating):
-conda create -n swipl -c conda-forge swi-prolog && conda activate swipl
-
 curl -LsSf https://astral.sh/uv/install.sh | sh
 uv sync --extra skyrl   # without --extra skyrl: environment generation only; add --extra tinker for Tinker
 cp .env.example .env    # W&B and run dirs
@@ -101,7 +96,7 @@ env = phantom_envs.generate("data/envs/pwcons-seed3", config)
 print(env.tasks("train")[0])
 ```
 
-An environment dir holds `phantom_env.json` (the config and a content hash), `universe/` (the Prolog
+An environment dir holds `phantom_env.json` (the config and a content hash), `universe/` (the
 facts and articles), `corpus.jsonl` (the articles the agent searches) and `tasks/{train,validation}.jsonl`
 (the questions and answers).
 

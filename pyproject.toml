@@ -25,15 +25,14 @@ classifiers = [
 ]
 
 dependencies = [
-    # phantom_envs: environment generation (needs SWI-Prolog installed; litellm rewrites the articles
-    # with an LLM), the episode logic, scoring and the retriever client
+    # phantom_envs: environment generation (litellm rewrites the articles with an LLM), the episode
+    # logic, scoring and the retriever client
     "numpy",
     "pydantic",
     "requests",
     "omegaconf",
     "tqdm",
     "nltk",
-    "pyswip",
     "networkx",
     "litellm",
 ]
@@ -96,7 +95,7 @@ Homepage = "https://github.com/kilian-group/phantom-envs"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"phantom_envs.generator" = ["data/*.json", "rules/*.pl"]
+"phantom_envs.generator" = ["data/*.json"]
 "phantom_envs.terminal" = ["*.js"]
 
 [tool.pytest.ini_options]

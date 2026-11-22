@@ -3,7 +3,7 @@
 Backward sampling always starts at the chain's far end, so the answer's neighborhood is reached
 only through long walks. Here the anchor is a random position of the chain: toward the answer the
 walk follows relations forward (``R("known", A)``), toward the far end it follows them in
-reverse (``R(A, "known")``), through the inverse predicates and caches in :class:`Lookups`.
+reverse (`R(A, "known")`), both through `Lookups`.
 """
 
 import re
@@ -292,7 +292,7 @@ def sample_bidirectional(
     Args:
         template: The template to fill.
         rng: Random generator.
-        lookups: The universe's lookups, with all three caches prewarmed.
+        lookups: The universe's lookups.
         attempts: Walks to try from the anchor before giving up.
 
     Returns:
