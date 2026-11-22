@@ -2,8 +2,17 @@
 
 This guide rebuilds the datasets, training runs, evaluations, tables and figures of
 [PhantomEnvironments: Training LLM Agents in Fictional Worlds](https://arxiv.org/abs/2609.40221). It
-assumes the [installation](../README.md#installation) with the `skyrl` extra and a `.env`
+assumes the [installation](../README.md#installation) with the `skyrl` extra, SWI-Prolog, and a `.env`
 with your W&B settings and run directory. Run every command from the repo root.
+
+The paper's generators (and the `paper` tag below) run on SWI-Prolog. Install it on Ubuntu, or without
+root in a conda env of its own, which you activate while generating:
+
+```bash
+sudo add-apt-repository -y ppa:swi-prolog/stable && sudo apt-get install -y swi-prolog-nox
+# ...or
+conda create -n swipl -c conda-forge swi-prolog && conda activate swipl
+```
 
 The paper's experiments trained with SkyRL's FSDP backend: for their library versions and experiments,
 use the repo's [`paper`](https://github.com/kilian-group/phantom-envs/tree/paper) tag
@@ -45,11 +54,7 @@ Hops+Comparisons come from a fork of PhantomWiki at commit
 uv run hf download kilian-group/phantom-envs --repo-type dataset --include "*-train.zip" --local-dir data
 for z in data/*-train.zip; do unzip -o $z -d data; done
 
-# Regenerate the eval universes (add pw-train, pwcons-train and pwcomp-train to rebuild those too).
-# The paper's generators run on SWI-Prolog. On Ubuntu:
-sudo add-apt-repository -y ppa:swi-prolog/stable && sudo apt-get install -y swi-prolog-nox
-# ...or without root, in a conda env of its own (activate it while generating):
-conda create -n swipl -c conda-forge swi-prolog && conda activate swipl
+# Regenerate the eval universes (add pw-train, pwcons-train and pwcomp-train to rebuild those too)
 for name in pw1 pw2 pwOOD; do
     uv run python reproduce_paper/scripts/generate_paper_data.py $name
 done
