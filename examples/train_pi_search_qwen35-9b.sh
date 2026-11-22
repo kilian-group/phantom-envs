@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Train Qwen3.5-9B in the pi harness on a Hops environment of 10K people and 10K questions, with its
+# Train Qwen3.5-9B in the pi harness on a Hops environment of 10K people and ≈10K questions, with its
 # articles rewritten by an LLM: the articles are not on disk, so the agent finds them with a search tool
 # served over MCP, keeps notes with bash in a sandbox, and writes its answer to a file. Then evaluate
 # the base and trained models as the same agent on six real-world multi-hop QA benchmarks. Runs on one
@@ -8,7 +8,7 @@
 # The environment keeps questions answerable with few searches: friendships are sparse (0.5 per person),
 # and no question's chain passes a person twice (--avoid_loops).
 # Training searches with e5, evals with Qwen3-Embedding-4B; the agent sees the same tool either way.
-# Training stops at step 100, in its second pass over the questions. The warmup is pinned to 38 steps.
+# Training makes one pass over the training questions, warming up the learning rate over its first 10%.
 # Rewriting the articles calls an LLM on OpenRouter: set OPENROUTER_API_KEY in .env.
 #
 # Usage, from the repo root after the installation in README.md, including the sandbox image (set CUDA_HOME
@@ -38,9 +38,9 @@ fi
 ulimit -n "$(ulimit -Hn)"
 
 # 1. Data: the environment with its e5 index, and the benchmarks with their Qwen3-Embedding-4B indexes,
-# all as terminal parquets. 182 questions for each of the 55 Hops templates make 10K questions.
+# all as terminal parquets. 200 questions for each of the 55 Hops templates make ≈10K questions.
 [ -f $ENV_DIR/corpus.jsonl ] || uv run phantom_envs generate --preset pw --output_dir $ENV_DIR --overwrite \
-    --avoid_loops size=10000 questions_per_template=182 rewrite_docs_with_llm=openai/gpt-6-luna
+    --avoid_loops size=10000 questions_per_template=200 rewrite_docs_with_llm=openai/gpt-6-luna
 [ -f $ENV_DIR/terminal/train.parquet ] || uv run python scripts/skyrl/prepare_data.py --data_dir $ENV_DIR --env terminal
 [ -f $ENV_DIR/e5_Flat.index ] || uv run --with faiss-cpu==1.12.0 python -m phantom_envs.retriever.build_index \
     --data_dir $ENV_DIR --encoder e5
@@ -58,8 +58,8 @@ for d in $BENCHMARKS; do
         --data_dir data/$d --encoder qwen3-4b
 done
 
-# 2. Train on every GPU: 100 steps of 128 questions x 8 rollouts, exporting the policy every 20 steps.
-# The 9K training questions last 70 steps, so the run takes two epochs.
+# 2. Train on every GPU: one pass over the training questions, in steps of 128 questions x 8 rollouts,
+# exporting the policy every 20 steps and at the end.
 # --search runs the agent as pi in bubblewrap, with bash and the search tool. The e5 search server
 # shares GPU 0 with the trainer; a smaller micro-batch token budget leaves it room.
 if [ -z "${CKPT:-}" ]; then
@@ -70,15 +70,14 @@ if [ -z "${CKPT:-}" ]; then
         trainer.train_batch_size=128 \
         trainer.policy_mini_batch_size=128 \
         trainer.max_tokens_per_microbatch=12288 \
-        trainer.epochs=2 \
-        trainer.max_training_steps=100 \
-        trainer.policy.optimizer_config.num_warmup_steps=38 \
+        trainer.epochs=1 \
         trainer.eval_interval=50 \
         trainer.hf_save_interval=20 \
         trainer.ckpt_interval=50 \
         "$@"
     RUN=$(ls -td "${RUN_BASE_DIR:-.}/examples_search/pw/$MODEL/grpo/$USER"/*/ | head -1)
-    CKPT=${RUN}exports/global_step_100/policy
+    # The export at the end of training
+    CKPT=$(ls -d "${RUN}"exports/global_step_* | sort -V | tail -1)/policy
 fi
 
 # 3. Evaluate both models on every GPU (the model config runs 4 vLLM engines with tensor parallelism 2),

@@ -161,22 +161,22 @@ not on disk, so the agent searches for them, and it writes its answer to `/app/o
 
 ```bash
 # Set CUDA_HOME in .env so that Qwen3.5 kernels get compiled for fast training
-# 10K people and 10K questions, none of which passes a person twice
+# 10K people and ≈10K questions, none of which passes a person twice
 uv run phantom_envs generate --preset pw --output_dir data/envs/pw-10k-rewrite --avoid_loops \
-    size=10000 questions_per_template=182 rewrite_docs_with_llm=openai/gpt-6-luna
+    size=10000 questions_per_template=200 rewrite_docs_with_llm=openai/gpt-6-luna
 uv run python scripts/skyrl/prepare_data.py --data_dir data/envs/pw-10k-rewrite --env terminal
 uv run --with faiss-cpu==1.12.0 python -m phantom_envs.retriever.build_index --data_dir data/envs/pw-10k-rewrite
 bash scripts/skyrl/launch_skyrl.sh train terminal data/envs/pw-10k-rewrite --search=e5 \
     --config scripts/skyrl/configs/models/Qwen3.5-9B.yaml \
-    trainer.epochs=2 \
+    trainer.epochs=1 \
     trainer.train_batch_size=128 \
     trainer.policy_mini_batch_size=128 \
     trainer.max_tokens_per_microbatch=12288 \
     trainer.hf_save_interval=20
 ```
 
-The search server runs on the first GPU beside the trainer. We paused the run at the step 100
-checkpoint when `pw` validation saturated near 100%.
+The search server runs on the first GPU beside the trainer. Training makes one pass over the
+training questions and exports the policy at the end.
 
 ### 4. Evaluate
 
