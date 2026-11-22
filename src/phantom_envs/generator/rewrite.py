@@ -150,10 +150,15 @@ def rewrite_articles(
         )
         retry = []
         for i, response in zip(todo, responses, strict=True):
+            # A request that failed after its retries comes back as the exception, in place of a response
+            if isinstance(response, Exception):
+                logger.warning(f"Rewrite request for {articles[i]['title']!r} failed: {response!r}")
+                retry.append(i)
+                continue
             try:
                 text = Rewrite.model_validate_json(response.choices[0].message.content).article.strip() + "\n"
-            except Exception as e:  # an API error (returned in place of a response) or a broken output
-                logger.warning(f"Rewrite of {articles[i]['title']!r} failed: {e!r}")
+            except Exception as e:  # e.g. a truncated output, or none at all
+                logger.warning(f"Rewrite of {articles[i]['title']!r} is not a valid output: {e!r}")
                 retry.append(i)
                 continue
             problems[i] = rewrite_problems(articles[i], text, people)

@@ -58,7 +58,8 @@ def fake_batch_completion(texts_per_title):
     """Build a stand-in for litellm.batch_completion.
 
     Args:
-        texts_per_title: Per article title, the rewrites to answer with, one per attempt.
+        texts_per_title: Per article title, the rewrites to answer with, one per attempt. An exception
+            stands for a request that failed, which litellm returns in place of the response.
 
     Returns:
         A function that answers each request with the next rewrite of its article.
@@ -68,7 +69,11 @@ def fake_batch_completion(texts_per_title):
         responses = []
         for m in messages:
             title = m[0]["content"].split('"# ')[1].split('"')[0]
-            content = json.dumps({"article": texts_per_title[title].pop(0)})
+            text = texts_per_title[title].pop(0)
+            if isinstance(text, Exception):
+                responses.append(text)
+                continue
+            content = json.dumps({"article": text})
             responses.append(
                 SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))])
             )
@@ -77,20 +82,23 @@ def fake_batch_completion(texts_per_title):
     return batch_completion
 
 
-def test_rewrite_retries_then_keeps_the_template(monkeypatch):
+def test_rewrite_retries_then_keeps_the_template(monkeypatch, caplog):
     bob = {
         "title": "Bob Lee",
         "article": "# Bob Lee\n\nThe hobby of Bob Lee is chess.\n",
         "facts": ['hobby("Bob Lee", "chess").'],
     }
+    # Ann's request fails, then her rewrite mentions someone else, then it passes; Bob's never does
     texts = {
-        "Ann Smith": [GOOD + "She knows Bob Lee.\n", GOOD],
-        "Bob Lee": ["# Lee\n\nHe plays chess.\n"] * 2,
+        "Ann Smith": [ConnectionError("Network is unreachable"), GOOD + "She knows Bob Lee.\n", GOOD],
+        "Bob Lee": ["# Lee\n\nHe plays chess.\n"] * 3,
     }
     monkeypatch.setattr(litellm, "batch_completion", fake_batch_completion(texts))
 
-    articles, stats = rewrite_articles([ANN, bob], "some/model", attempts=2)
+    articles, stats = rewrite_articles([ANN, bob], "some/model", attempts=3)
 
     assert stats == {"rewritten": 1, "kept_template": 1}
     assert articles[0]["article"] == GOOD and articles[0]["template"] == ANN["article"]
     assert articles[1]["article"] == bob["article"] == articles[1]["template"]
+    # The log names the request's own error
+    assert "Rewrite request for 'Ann Smith' failed: ConnectionError('Network is unreachable')" in caplog.text
