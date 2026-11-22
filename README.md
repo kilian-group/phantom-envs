@@ -93,6 +93,8 @@ uv run phantom_envs generate \
 - `hard_mode=true`: relations that span several articles, like `cousin`.
 - `friendship_degree`: the average number of friends per person (also `--friendship_degree`). Above
   about 1, questions over several hops get many answers.
+- `--avoid_loops`: ask only about chains of distinct people, so no question passes a person twice
+  ("the mother of the child of Ann" who is Ann again).
 - `rewrite_docs_with_llm=openai/gpt-6-luna`: rewrite the template articles as Wikipedia-style
   biographies with the same facts, using that model on OpenRouter (set `OPENROUTER_API_KEY`).
 
@@ -159,11 +161,14 @@ not on disk, so the agent searches for them, and it writes its answer to `/app/o
 
 ```bash
 # Set CUDA_HOME in .env so that Qwen3.5 kernels get compiled for fast training
-uv run phantom_envs generate --preset pw --output_dir data/envs/pw-rewrite rewrite_docs_with_llm=openai/gpt-6-luna
-uv run python scripts/skyrl/prepare_data.py --data_dir data/envs/pw-rewrite --env terminal
-uv run --with faiss-cpu==1.12.0 python -m phantom_envs.retriever.build_index --data_dir data/envs/pw-rewrite
-bash scripts/skyrl/launch_skyrl.sh train terminal data/envs/pw-rewrite --search=e5 \
+# 10K people and 10K questions, none of which passes a person twice
+uv run phantom_envs generate --preset pw --output_dir data/envs/pw-10k-rewrite --avoid_loops \
+    size=10000 questions_per_template=182 rewrite_docs_with_llm=openai/gpt-6-luna
+uv run python scripts/skyrl/prepare_data.py --data_dir data/envs/pw-10k-rewrite --env terminal
+uv run --with faiss-cpu==1.12.0 python -m phantom_envs.retriever.build_index --data_dir data/envs/pw-10k-rewrite
+bash scripts/skyrl/launch_skyrl.sh train terminal data/envs/pw-10k-rewrite --search=e5 \
     --config scripts/skyrl/configs/models/Qwen3.5-9B.yaml \
+    trainer.epochs=2 \
     trainer.train_batch_size=128 \
     trainer.policy_mini_batch_size=128 \
     trainer.max_tokens_per_microbatch=12288 \
