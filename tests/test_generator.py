@@ -8,8 +8,9 @@ from phantom_envs._types import SplitConfig, Task
 from phantom_envs.environment import PRESETS, content_hash, generate
 from phantom_envs.generator.parallel import parallel_map
 from phantom_envs.generator.query import answer_query
-from phantom_envs.generator.questions import comparison_answer, samplable_templates
+from phantom_envs.generator.questions import comparison_answer, samplable_templates, sample_questions
 from phantom_envs.generator.relations import RULES, Database, children_of_related_parents, rule
+from phantom_envs.generator.sample import Assignments
 from phantom_envs.generator.templates import COMPARISON_PREFIXES, Template, generate_templates
 from phantom_envs.generator.universe import build_universe
 from phantom_envs.generator.vocab import ALL_RELATIONS
@@ -157,6 +158,28 @@ def test_friendship_degree():
     assert sparse.names == dense.names and sparse["parent"].pairs == dense["parent"].pairs
     assert 25 < len(sparse["friend_"]) < 75 and 225 < len(dense["friend_"]) < 375
     assert len(build_universe(size=200, seed=1, friendship_degree=0)["friend"]) == 0
+
+
+@pytest.mark.parametrize("sampler", ["backward", "bidirectional"])
+def test_avoid_loops(monkeypatch, sampler):
+    # Record the people of every sampled chain: its named starting points and its variables' people
+    chains = []
+    fill = Assignments.fill
+
+    def record(self, template):
+        names = [value[1:-1] for placeholder, value in self.query.items() if placeholder.startswith("<name>")]
+        chains.append(names + list(self.atoms.values()))
+        return fill(self, template)
+
+    monkeypatch.setattr(Assignments, "fill", record)
+    db = build_universe(size=200, seed=1, friendship_degree=0.5)
+    config = replace(PRESETS["pw"], questions_per_template=5, sampler=sampler)
+    for avoid_loops in (False, True):
+        chains.clear()
+        questions = sample_questions(db, replace(config, avoid_loops=avoid_loops))
+        assert len(questions) == len(chains) == 55 * 5
+        # Without the option many chains pass a person twice; with it none does
+        assert any(len(set(chain)) < len(chain) for chain in chains) != avoid_loops
 
 
 class TestQuery:

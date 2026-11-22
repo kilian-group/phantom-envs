@@ -45,6 +45,9 @@ class Lookups:
 
     db: Database = field(metadata={"description": "The universe."})
     relations: list[str] = field(metadata={"description": "Relations questions may use."})
+    avoid_loops: bool = field(
+        default=False, metadata={"description": "Whether walks may only step to people they have not passed."}
+    )
     names: list[str] = field(default_factory=list, metadata={"description": "Everyone, in database order."})
     attributes: dict[str, list[tuple[str, str]]] = field(
         default_factory=dict, metadata={"description": "Person -> (attribute, value) pairs."}
@@ -111,6 +114,27 @@ class Assignments:
     used_attributes: dict[str, set[tuple[str, str]]] = field(
         default_factory=dict, metadata={"description": "Y_i -> its (attribute, value) constraints so far."}
     )
+    avoid_loops: bool = field(
+        default=False, metadata={"description": "Whether the walk may only step to people it has not passed."}
+    )
+
+    def steps(self, options: list[tuple[str, str]]) -> list[tuple[str, str]]:
+        """Choose the steps the walk may take next.
+
+        Args:
+            options: `(relation, person)` pairs, the relatives of the walk's current person.
+
+        Returns:
+            All of them, or with `avoid_loops` those that lead to a person the walk has not passed.
+        """
+        if not self.avoid_loops:
+            return options
+        # The people the walk has passed: its named starting points and the people its variables stand for
+        passed = {
+            value[1:-1] for placeholder, value in self.query.items() if placeholder.startswith("<name>")
+        }
+        passed.update(self.atoms.values())
+        return [(relation, person) for relation, person in options if person not in passed]
 
     def bind(self, placeholder: str, person: str) -> None:
         """Bind a ``Y_i`` to a person through a fresh atom variable ``A_j``."""
@@ -206,7 +230,7 @@ def walk_atom(atom: str, a: Assignments, rng: Generator, lookups: Lookups) -> bo
         relation, name, y = m.groups()
         person = pick(rng, lookups.names)
         a.query[name] = f'"{person}"'
-        options = lookups.related_to(person)
+        options = a.steps(lookups.related_to(person))
         if not options:
             return False
         rel, other = pick(rng, options)
@@ -218,7 +242,7 @@ def walk_atom(atom: str, a: Assignments, rng: Generator, lookups: Lookups) -> bo
         # "the <relation> of ...": follow a random relation of the current person
         relation, y1, y2 = m.groups()
         assert y1 in a.query and y2 not in a.query, f"{atom}: {y1} should be bound and {y2} free"
-        options = lookups.related_to(a.person(y1))
+        options = a.steps(lookups.related_to(a.person(y1)))
         if not options:
             return False
         rel, other = pick(rng, options)
@@ -242,7 +266,7 @@ def walk_atom(atom: str, a: Assignments, rng: Generator, lookups: Lookups) -> bo
         relation_plural, name, _, _ = m.groups()
         person = pick(rng, lookups.names)
         a.query[name] = f'"{person}"'
-        options = lookups.related_to(person)
+        options = a.steps(lookups.related_to(person))
         if not options:
             return False
         rel, _ = pick(rng, options)
@@ -253,7 +277,7 @@ def walk_atom(atom: str, a: Assignments, rng: Generator, lookups: Lookups) -> bo
         # "How many <relations> does ... have": a relation the current person has
         relation_plural, y1, y2, _ = m.groups()
         assert y1 in a.query and y2 not in a.query, f"{atom}: {y1} should be bound and {y2} free"
-        options = lookups.related_to(a.person(y1))
+        options = a.steps(lookups.related_to(a.person(y1)))
         if not options:
             return False
         rel, other = pick(rng, options)
@@ -284,7 +308,7 @@ def sample_backward(
     """
     for _ in range(attempts):
         # A fresh walk; the first dead end ends it
-        a = Assignments()
+        a = Assignments(avoid_loops=lookups.avoid_loops)
         if all(walk_atom(atom, a, rng, lookups) for atom in reversed(template.query)):
             return *a.fill(template), a.bindings()
     return None

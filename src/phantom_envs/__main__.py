@@ -6,6 +6,7 @@ Usage:
     # A new environment from a preset (pw, pwcons, pwcomp), with EnvConfig fields overridden as key=value
     uv run phantom_envs generate --preset pwcons --output_dir data/envs/pwcons-seed2 seed=2
     uv run phantom_envs generate --output_dir /tmp/pw-dense --friendship_degree 3 --num_workers 16
+    uv run phantom_envs generate --output_dir /tmp/pw-10k --avoid_loops size=10000
     uv run phantom_envs generate --output_dir /tmp/pw 'kinds=[base,count]' split.cap_factor=1
 """
 
@@ -55,6 +56,8 @@ def main(args: argparse.Namespace) -> None:
             overrides = args.overrides
             if args.friendship_degree is not None:
                 overrides = [*overrides, f"friendship_degree={args.friendship_degree}"]
+            if args.avoid_loops:
+                overrides = [*overrides, "avoid_loops=true"]
             config = config_from_cli(args.preset, overrides)
             env = generate(args.output_dir, config, num_workers=args.num_workers, overwrite=args.overwrite)
     summary = {k: env.manifest[k] for k in ("content_hash", "num_people", "num_tasks")}
@@ -74,6 +77,9 @@ def cli() -> None:
         "--friendship_degree",
         type=float,
         help=f"Average number of friends per person (default: {EnvConfig().friendship_degree}).",
+    )
+    gen.add_argument(
+        "--avoid_loops", action="store_true", help="Ask only about chains of distinct people (default: off)."
     )
     gen.add_argument("--num_workers", type=int, default=8, help="Processes to generate with (default: 8).")
     gen.add_argument("--overwrite", action="store_true", help="Replace an existing environment.")

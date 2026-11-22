@@ -60,6 +60,13 @@ class EnvConfig:
             "description": "backward (walk from the chain's far end) or bidirectional (from a random anchor)."
         },
     )
+    avoid_loops: bool = field(
+        default=False,
+        metadata={
+            "description": "Sample only chains of distinct people: a walk never returns to a person it has "
+            'passed (no "the mother of the child of Ann" that is Ann again).'
+        },
+    )
     hard_mode: bool = field(
         default=False,
         metadata={

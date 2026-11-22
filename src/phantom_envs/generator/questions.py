@@ -146,7 +146,7 @@ def sample_questions(db: Database, config: EnvConfig, num_workers: int = 1) -> l
         The questions (see `answer_sample`), in template order.
     """
     templates = samplable_templates(config)
-    lookups = Lookups(db, relation_bank(config.hard_mode))
+    lookups = Lookups(db, relation_bank(config.hard_mode), config.avoid_loops)
     db.derive(lookups.relations + ATTRIBUTE_TYPES)
 
     # A template's questions do not depend on the other templates, nor an answer on other questions,
