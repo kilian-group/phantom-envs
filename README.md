@@ -26,27 +26,16 @@ with a search tool over MCP.
 
 ## Examples
 
-Each script in `examples/` generates its training data, trains a model, and evaluates it as the same
-agent on six real-world multi-hop QA benchmarks (HotpotQA, 2WikiMultiHopQA, MuSiQue, SynthRM, SynthSM
-and FRAMES). F1 is their average, before and after training.
+Each script in `examples/` generates training data, trains a model, and evaluates it on six real-world
+multi-hop QA benchmarks. F1 is their average, before and after training.
 
-| LLM | F1 score gain | Harness | Training data | Hardware |
-|---|---|---|---|---|
-| [Qwen3.5-9B](examples/train_pi_search_qwen35-9b.sh) | 56 → 65 (+9) | pi + bash + search MCP | 10K people, ≈10K questions, rewritten, no loops | 9 h on 8xH100 |
-| Qwen3.5-9B | 56 → 67 (+11) | pi + bash + search MCP | 1K people, 55K questions, rewritten | 13 h on 8xH100 |
-| [Inkling 2 Small](examples/train_inkling_tinker.sh) | 65 → 75 (+10) | pi + bash | 1K people, 55K questions, rewritten | 6 h, ~$145 with Tinker |
-| [Qwen3.5-9B](examples/train_pi_qwen35-9b.sh) | 46 → 62 (+16) | pi + bash ([visualization](assets/terminal-agent.gif)) | 1K people, 55K questions | 15 h on 8xH100 |
-| [Qwen3.5-9B](examples/train_shell_qwen35-9b.sh) | 50 → 63 (+13) | ShellSim + bash | 1K people, 55K questions | 11 h on 8xH100 |
-| [Qwen3-30B-A3B](examples/train_pw_qwen3-30b.sh) | 46 → 56 (+10) | Search-R1 style | 1K people, 55K questions | 40 h on 8xH100 |
-
-All of them train on Hops (`pw`) questions. "Rewritten" means an LLM rewrote the template articles,
-and "no loops" means no question's chain passes a person twice (`--avoid_loops`). The first row is
-the default data, with 0.5 friends per person. The others used 3; their scripts pass
-`--friendship_degree 3`. For reference, Qwen4-Max scores 69 as the pi agent with bash, and 65 in ShellSim.
-
-The default data is a starting point for ablating the generator, not its best setting. With the same
-harness it transfers 2 points less than the earlier 1K-person data, and its agent searches about 1.6
-times as often (17–23 searches per question, against 9–15).
+| LLM | F1 score gain | Harness | Hardware |
+|---|---|---|---|
+| [Qwen3.5-9B](examples/train_pi_search_qwen35-9b.sh) | 56 → 65 (+9) | pi + bash + search MCP | 9 h on 8xH100 |
+| [Inkling 2 Small](examples/train_inkling_tinker.sh) | 65 → 75 (+10) | pi + bash | 6 h, ~$145 with Tinker |
+| [Qwen3.5-9B](examples/train_pi_qwen35-9b.sh) | 46 → 62 (+16) | pi + bash ([visualization](assets/terminal-agent.gif)) | 15 h on 8xH100 |
+| [Qwen3.5-9B](examples/train_shell_qwen35-9b.sh) | 50 → 63 (+13) | ShellSim + bash | 11 h on 8xH100 |
+| [Qwen3-30B-A3B](examples/train_pw_qwen3-30b.sh) | 46 → 56 (+10) | Search-R1 style | 40 h on 8xH100 |
 
 ## Installation
 
@@ -180,8 +169,7 @@ bash scripts/skyrl/launch_skyrl.sh train terminal data/envs/pw-10k-rewrite --sea
 ```
 
 The search server runs on the first GPU beside the trainer. Training makes one pass over the
-training questions and exports the policy at the end. In our run, the average F1 on the six benchmarks
-rose from 56 to 65 (see [Examples](#examples)).
+training questions and exports the policy at the end.
 
 ### 4. Evaluate
 
