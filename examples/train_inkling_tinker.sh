@@ -32,8 +32,9 @@ fi
 ulimit -n "$(ulimit -Hn)"
 
 # 1. Data: the pw-rewrite environment and the benchmarks (Tinker reads their tasks; no parquets)
+# 3 friends per person, as in our run (the default is 0.5)
 [ -f $ENV_DIR/corpus.jsonl ] || uv run phantom_envs generate --preset pw --output_dir $ENV_DIR --overwrite \
-    rewrite_docs_with_llm=openai/gpt-6-luna
+    --friendship_degree 3 rewrite_docs_with_llm=openai/gpt-6-luna
 for d in $BENCHMARKS; do
     [ -f data/$d/corpus.jsonl ] && continue
     # multihop.py downloads FRAMES itself

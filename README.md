@@ -24,25 +24,29 @@ searches the articles and reads what comes back, and the environment rewards its
 instance, you can train an LLM in the [pi](https://pi.dev) agent harness, where it finds the articles
 with a search tool over MCP.
 
-## News
+## Examples
 
-- **2026-Nov-22:** Generate environments in pure Python, without SWI-Prolog: a universe of 1M people
-  takes 1.5 minutes. Friendships are sparser by default (0.5 friends per person, down from 3), so that
-  questions keep few answers; pass `--friendship_degree 3` for the earlier universes.
-- **2026-Nov-20:** [Train Qwen3.5-9B in the pi harness with a search tool](examples/train_pi_search_qwen35-9b.sh)
-  served over MCP, improving F1 score from 56% to 66%. The agent learns to run several searches per turn.
-  On an 8xH100 node, training took 13 hours.
-- **2026-Nov-19:** [Fine-tune Inkling 2 Small with Tinker](examples/train_inkling_tinker.sh) in the pi harness,
-  improving F1 score from 65% to 75% (Qwen4-Max: 69%). Training cost ~$145 on Tinker and took 6 hours.
-- **2026-Nov-19:** [Train Qwen3.5-9B in the pi harness](examples/train_pi_qwen35-9b.sh), with bash in a
-  sandbox, improving F1 score from 46% to 62% (Qwen4-Max: 69%). On an 8xH100 node, training took 15
-  hours (see [visualization](assets/terminal-agent.gif)).
-- **2026-Nov-17:** [Train Qwen3.5-9B in a coding agent harness](examples/train_shell_qwen35-9b.sh) to search
-  using bash commands, improving F1 score from 50% to 63% (Qwen4-Max: 65%). On an 8xH100 node, training
-  took 11 hours.
-- **2026-Nov-13:** Move to SkyRL Megatron backend support.
-  [Train Qwen3-30B-A3B MoE on PhantomWiki](examples/train_pw_qwen3-30b.sh) to improve agentic search
-  F1 score from 46% to 56%. On an 8xH100 node, training took 40 hours.
+Each script in `examples/` generates its training data, trains a model, and evaluates it as the same
+agent on six real-world multi-hop QA benchmarks (HotpotQA, 2WikiMultiHopQA, MuSiQue, SynthRM, SynthSM
+and FRAMES). F1 is their average, before and after training.
+
+| LLM | F1 score gain | Harness | Training data | Hardware |
+|---|---|---|---|---|
+| [Qwen3.5-9B](examples/train_pi_search_qwen35-9b.sh) | 56 → 65 (+9) | pi + bash + search MCP | 10K people, ≈10K questions, rewritten, no loops | 9 h on 8xH100 |
+| Qwen3.5-9B | 56 → 67 (+11) | pi + bash + search MCP | 1K people, 55K questions, rewritten | 13 h on 8xH100 |
+| [Inkling 2 Small](examples/train_inkling_tinker.sh) | 65 → 75 (+10) | pi + bash | 1K people, 55K questions, rewritten | 6 h, ~$145 with Tinker |
+| [Qwen3.5-9B](examples/train_pi_qwen35-9b.sh) | 46 → 62 (+16) | pi + bash ([visualization](assets/terminal-agent.gif)) | 1K people, 55K questions | 15 h on 8xH100 |
+| [Qwen3.5-9B](examples/train_shell_qwen35-9b.sh) | 50 → 63 (+13) | ShellSim + bash | 1K people, 55K questions | 11 h on 8xH100 |
+| [Qwen3-30B-A3B](examples/train_pw_qwen3-30b.sh) | 46 → 56 (+10) | Search-R1 style | 1K people, 55K questions | 40 h on 8xH100 |
+
+All of them train on Hops (`pw`) questions. "Rewritten" means an LLM rewrote the template articles,
+and "no loops" means no question's chain passes a person twice (`--avoid_loops`). The first row is
+the default data, with 0.5 friends per person. The others used 3; their scripts pass
+`--friendship_degree 3`. For reference, Qwen4-Max scores 69 as the pi agent with bash, and 65 in ShellSim.
+
+The default data is a starting point for ablating the generator, not its best setting. With the same
+harness it transfers 2 points less than the earlier 1K-person data, and its agent searches about 1.6
+times as often (17–23 searches per question, against 9–15).
 
 ## Installation
 
@@ -91,8 +95,8 @@ uv run phantom_envs generate \
 - `max_hops`, `max_constraints`: the hardest questions.
 - `kinds`: `base`, `count` ("How many ...") and `comparison` questions.
 - `hard_mode=true`: relations that span several articles, like `cousin`.
-- `friendship_degree`: the average number of friends per person (also `--friendship_degree`). Above
-  about 1, questions over several hops get many answers.
+- `friendship_degree`: the average number of friends per person (also `--friendship_degree`; 0.5 by
+  default, 3 in PhantomWiki). Above about 1, questions over several hops get many answers.
 - `--avoid_loops`: ask only about chains of distinct people, so no question passes a person twice
   ("the mother of the child of Ann" who is Ann again).
 - `rewrite_docs_with_llm=openai/gpt-6-luna`: rewrite the template articles as Wikipedia-style
@@ -176,7 +180,8 @@ bash scripts/skyrl/launch_skyrl.sh train terminal data/envs/pw-10k-rewrite --sea
 ```
 
 The search server runs on the first GPU beside the trainer. Training makes one pass over the
-training questions and exports the policy at the end.
+training questions and exports the policy at the end. In our run, the average F1 on the six benchmarks
+rose from 56 to 65 (see [Examples](#examples)).
 
 ### 4. Evaluate
 
