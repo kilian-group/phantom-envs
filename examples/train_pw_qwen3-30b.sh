@@ -27,7 +27,8 @@ build_index() {
 # 1. Data: the pw environment with its e5 index for training, and the benchmarks with their
 #    Qwen3-Embedding-4B indexes for evaluation (as in reproduce_paper/README.md)
 if [ ! -f $ENV_DIR/e5_Flat.index ]; then
-    uv run phantom_envs generate --preset pw --output_dir $ENV_DIR --overwrite
+    # 3 friends per person, as in our run (the default is 0.5)
+    uv run phantom_envs generate --preset pw --output_dir $ENV_DIR --overwrite --friendship_degree 3
     uv run python scripts/skyrl/prepare_data.py --data_dir $ENV_DIR
     build_index --data_dir $ENV_DIR
 fi

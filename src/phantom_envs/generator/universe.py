@@ -12,16 +12,15 @@ from datetime import date, timedelta
 from importlib.resources import files
 
 import networkx as nx
+import numpy as np
 from numpy.random import default_rng
 
-from phantom_envs.generator.prolog import Database
+from phantom_envs.generator.relations import Database, Fact
 from phantom_envs.generator.vocab import PERSON_TYPE
 
 FAMILY_TREE_SIZE = 10
 MAX_FAMILY_TREE_DEPTH = 10
 MAX_BRANCHING_FACTOR = 5
-# Average number of friends per person
-FRIENDSHIP_DEGREE = 3
 
 
 def load_data(name: str):
@@ -78,20 +77,20 @@ class PersonFactory:
         self.person_counter = 0
         female_names, male_names = load_data("female_names"), load_data("male_names")
         last_names = load_data("last_names")
-        # Unused first names per (last name, female), so full names stay unique
-        self.remaining_names = {s: {True: female_names.copy(), False: male_names.copy()} for s in last_names}
-        # Last names with first names left for women (True), men (False), and both (None)
-        self.remaining_last_names = {
-            True: last_names.copy(),
-            False: last_names.copy(),
-            None: last_names.copy(),
-        }
+        # The first names not yet used under each last name, so that full names stay unique
+        self.female_first_names: dict[str, list[str]] = {s: female_names.copy() for s in last_names}
+        self.male_first_names: dict[str, list[str]] = {s: male_names.copy() for s in last_names}
+        # The last names that still have a first name left: for a woman, for a man, and for both
+        # (new parents are a woman and a man who share a last name)
+        self.female_last_names: list[str] = last_names.copy()
+        self.male_last_names: list[str] = last_names.copy()
+        self.couple_last_names: list[str] = last_names.copy()
 
-    def last_name(self, female: bool | None = None) -> str:
-        """Draw a last name that still has unused first names.
+    def draw_last_name(self, last_names: list[str]) -> str:
+        """Draw one of the last names that still have first names left.
 
         Args:
-            female: Gender the name is for; None for a name with first names left for both.
+            last_names: `female_last_names`, `male_last_names` or `couple_last_names`.
 
         Returns:
             The last name.
@@ -99,10 +98,9 @@ class PersonFactory:
         Raises:
             ValueError: If every last name is used up.
         """
-        pool = self.remaining_last_names[female]
-        if not pool:
+        if not last_names:
             raise ValueError("Ran out of names: generate a smaller universe")
-        return self.rng.choice(pool)
+        return self.rng.choice(last_names)
 
     def first_name(self, female: bool, surname: str) -> str:
         """Draw and use up a first name for a last name and gender.
@@ -117,14 +115,18 @@ class PersonFactory:
         Raises:
             ValueError: If the last name has no first names left.
         """
-        pool = self.remaining_names[surname][female]
-        if not pool:
+        first_names = (self.female_first_names if female else self.male_first_names)[surname]
+        if not first_names:
             raise ValueError("Ran out of names: generate a smaller universe")
-        name = pool.pop(self.rng.randrange(len(pool)))
-        # Last first name taken: retire the last name for this gender
-        if not pool:
-            self.remaining_last_names[female].remove(surname)
-            self.remaining_last_names[None].remove(surname)
+        name = first_names.pop(self.rng.randrange(len(first_names)))
+        # Last first name taken: retire the last name for this gender, and so for couples
+        if not first_names:
+            for last_names in (
+                self.female_last_names if female else self.male_last_names,
+                self.couple_last_names,
+            ):
+                if surname in last_names:
+                    last_names.remove(surname)
         return name
 
     def random_dob(self, year: int) -> date:
@@ -151,7 +153,11 @@ class PersonFactory:
         dob_1, dob_2 = self.random_dob(yob_1), self.random_dob(yob_2)
 
         # A married woman took her husband's name, so her parents get a new one
-        surname = self.last_name() if child.female and child.married_to else child.surname
+        surname = (
+            self.draw_last_name(self.couple_last_names)
+            if child.female and child.married_to
+            else child.surname
+        )
         return [
             self.create_person(tree_level, surname, dob_1, female=False),
             self.create_person(tree_level, surname, dob_2, female=True),
@@ -226,9 +232,10 @@ class PersonFactory:
         if female:
             surname = spouse.surname
         else:
-            surname = self.last_name(female)
-            # The wife gives back her first name under her old last name and takes one under the new
-            self.remaining_names[spouse.surname][spouse.female].append(spouse.name)
+            # A last name for both: the wife takes it too
+            surname = self.draw_last_name(self.couple_last_names)
+            # She gives back her first name under her old last name and takes one under the new
+            self.female_first_names[spouse.surname].append(spouse.name)
             spouse.surname = surname
             spouse.name = self.first_name(spouse.female, spouse.surname)
         return self.create_person(tree_level, surname, spouse_dob, female)
@@ -253,7 +260,7 @@ class PersonFactory:
         if female is None:
             female = self.rng.random() > 0.5
         if surname is None:
-            surname = self.last_name(female)
+            surname = self.draw_last_name(self.female_last_names if female else self.male_last_names)
         name = self.first_name(female, surname)
         self.person_counter += 1
         return Person(self.person_counter, name, surname, female, tree_level, dob)
@@ -321,41 +328,42 @@ def sample_family_tree(factory: PersonFactory, rng: random.Random) -> list[Perso
             return tree
 
 
-def family_facts(tree: list[Person]) -> list[str]:
-    """Prolog facts of a family tree.
+def family_facts(tree: list[Person]) -> list[Fact]:
+    """The facts of a family tree.
 
     Args:
         tree: The tree's people.
 
     Returns:
-        ``type``, ``gender``, ``parent`` and ``dob`` facts (without periods), each group sorted.
+        `type`, `gender`, `parent` and `dob` facts, each group sorted.
     """
     people, genders, parents, dobs = [], [], [], []
     for p in tree:
-        people.append(f'type("{p.full_name()}", {PERSON_TYPE})')
-        genders.append(f'gender("{p.full_name()}", "{"female" if p.female else "male"}")')
-        parents += [f'parent("{c.full_name()}", "{p.full_name()}")' for c in p.children]
-        dobs.append(f'dob("{p.full_name()}", "{p.date_of_birth}")')
+        people.append(("type", p.full_name(), PERSON_TYPE))
+        genders.append(("gender", p.full_name(), "female" if p.female else "male"))
+        parents += [("parent", c.full_name(), p.full_name()) for c in p.children]
+        dobs.append(("dob", p.full_name(), str(p.date_of_birth)))
     return sorted(people) + sorted(genders) + sorted(parents) + sorted(dobs)
 
 
-def friendship_facts(names: list[str], seed: int) -> list[str]:
-    """Friendships from an Erdős–Rényi G(n, p) graph with ``FRIENDSHIP_DEGREE`` friends on average.
+def friendship_facts(names: list[str], seed: int, degree: float) -> list[Fact]:
+    """Friendships from an Erdős–Rényi G(n, p) graph: every two people are friends with the same probability.
 
     Args:
         names: Everyone in the universe, in database order.
         seed: Seed for the graph.
+        degree: Average number of friends per person.
 
     Returns:
-        ``friend_`` facts (without periods); ``friend`` makes them symmetric.
+        One `friend_` fact per friendship; the `friend` rule lists it both ways.
     """
-    graph = nx.fast_gnp_random_graph(n=len(names), p=FRIENDSHIP_DEGREE / len(names), seed=seed)
-    # Relabeling rebuilds the graph, which can reorder its edges (and so Prolog's answers)
+    graph = nx.fast_gnp_random_graph(n=len(names), p=degree / len(names), seed=seed)
+    # Relabeling rebuilds the graph, which can reorder its edges (and so each person's friends)
     graph = nx.relabel_nodes(graph, dict(enumerate(names)))
-    return [f'friend_("{a}", "{b}")' for a, b in graph.edges]
+    return [("friend_", a, b) for a, b in graph.edges]
 
 
-def attribute_facts(names: list[str], seed: int) -> list[str]:
+def attribute_facts(names: list[str], seed: int) -> list[Fact]:
     """A job and a hobby for each person.
 
     Args:
@@ -363,43 +371,43 @@ def attribute_facts(names: list[str], seed: int) -> list[str]:
         seed: Seed for the draws (jobs and hobbies each start from it).
 
     Returns:
-        ``job``, ``hobby`` and ``attribute`` facts (without periods).
+        `job` and `hobby` facts, each followed by an `attribute` fact naming the value.
     """
-    jobs, hobbies = load_data("jobs"), load_data("hobbies")
+    # As arrays, which a numpy generator draws from without converting the list on every draw
+    jobs = np.array(load_data("jobs"))
+    hobbies = {category: np.array(values) for category, values in load_data("hobbies").items()}
+    categories = np.array(list(hobbies))
     job_rng, hobby_rng = default_rng(seed), default_rng(seed)
-    job_of = {name: job_rng.choice(jobs) for name in names}
+    job_of = {name: str(job_rng.choice(jobs)) for name in names}
     # A hobby category first, then a hobby in it
-    hobby_of = {name: hobby_rng.choice(hobbies[hobby_rng.choice(list(hobbies))]) for name in names}
+    hobby_of = {name: str(hobby_rng.choice(hobbies[str(hobby_rng.choice(categories))])) for name in names}
     facts = []
     for name in names:
-        facts += [f'job("{name}", "{job_of[name]}")', f'attribute("{job_of[name]}")']
-        facts += [f'hobby("{name}", "{hobby_of[name]}")', f'attribute("{hobby_of[name]}")']
+        facts += [("job", name, job_of[name]), ("attribute", job_of[name])]
+        facts += [("hobby", name, hobby_of[name]), ("attribute", hobby_of[name])]
     return facts
 
 
-def build_universe(db: Database, size: int, seed: int) -> list[str]:
-    """Generate a universe of about ``size`` people into a database.
+def build_universe(size: int, seed: int, friendship_degree: float) -> Database:
+    """Generate a universe of about `size` people.
 
     Args:
-        db: An empty database.
-        size: Target number of people, a multiple of ``FAMILY_TREE_SIZE``. Spouses push a tree past it.
+        size: Target number of people, a multiple of `FAMILY_TREE_SIZE`. Spouses push a tree past it.
         seed: Seed for the family trees, the friendships and the attributes.
+        friendship_degree: Average number of friends per person.
 
     Returns:
-        The facts added (without periods), in order.
+        A database holding the universe's facts.
     """
     # Family trees, all drawing from one generator
+    db = Database()
     rng = random.Random(seed)
     factory = PersonFactory(rng)
-    family = []
     for _ in range(size // FAMILY_TREE_SIZE):
-        family += family_facts(sample_family_tree(factory, rng))
-    db.add(*family)
+        db.add(*family_facts(sample_family_tree(factory, rng)))
 
     # Friendships and attributes over everyone, in database order
-    names = db.person_names()
-    friends = friendship_facts(names, seed)
-    db.add(*friends)
-    attributes = attribute_facts(names, seed)
-    db.add(*attributes)
-    return family + friends + attributes
+    names = db.names
+    db.add(*friendship_facts(names, seed, friendship_degree))
+    db.add(*attribute_facts(names, seed))
+    return db

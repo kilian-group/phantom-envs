@@ -2,8 +2,8 @@
 
 Backward sampling always starts at the chain's far end, so the answer's neighborhood is reached
 only through long walks. Here the anchor is a random position of the chain: toward the answer the
-walk follows relations forward (``R("known", A)``), toward the far end it follows them in
-reverse (``R(A, "known")``), through the inverse predicates and caches in :class:`Lookups`.
+walk follows relations forward (`R("known", A)`), toward the far end it follows them in
+reverse (`R(A, "known")`), both through `Lookups`.
 """
 
 import re
@@ -170,7 +170,7 @@ def walk_forward(step: Step, a: Assignments, rng: Generator, lookups: Lookups) -
         case "relation_yy":
             # "the <relation> of" a known person: follow one of their relations
             relation, y1, y2 = m.groups()
-            options = lookups.related_to(a.person(y1))
+            options = a.steps(lookups.related_to(a.person(y1)))
             if not options:
                 return False
             rel, other = pick(rng, options)
@@ -183,7 +183,7 @@ def walk_forward(step: Step, a: Assignments, rng: Generator, lookups: Lookups) -
             relation, name, y = m.groups()
             person = pick(rng, lookups.names)
             a.query[name] = f'"{person}"'
-            options = lookups.related_to(person)
+            options = a.steps(lookups.related_to(person))
             if not options:
                 return False
             rel, other = pick(rng, options)
@@ -219,7 +219,7 @@ def walk_forward(step: Step, a: Assignments, rng: Generator, lookups: Lookups) -
             else:
                 relation_plural, y1, y2, _ = m.groups()
                 person = a.person(y1)
-            options = lookups.related_to(person)
+            options = a.steps(lookups.related_to(person))
             if not options:
                 return False
             rel, other = pick(rng, options)
@@ -250,7 +250,7 @@ def walk_inverse(step: Step, a: Assignments, rng: Generator, lookups: Lookups) -
         case "relation_yy" | "relation_name" | "count_name" | "count_yy":
             # Relation steps are (rel, first, second, ...): find a first with rel(first, second)
             rel_placeholder, first, second = m.group(1, 2, 3)
-            options = lookups.inverse_of(a.person(second))
+            options = a.steps(lookups.inverse_of(a.person(second)))
             if not options:
                 return False
             rel, found = pick(rng, options)
@@ -292,7 +292,7 @@ def sample_bidirectional(
     Args:
         template: The template to fill.
         rng: Random generator.
-        lookups: The universe's lookups, with all three caches prewarmed.
+        lookups: The universe's lookups.
         attempts: Walks to try from the anchor before giving up.
 
     Returns:
@@ -312,7 +312,7 @@ def sample_bidirectional(
     walk = {"forward": walk_forward, "inverse": walk_inverse}
     for _ in range(attempts):
         # Start at a random person; the first dead end ends the walk
-        a = Assignments()
+        a = Assignments(avoid_loops=lookups.avoid_loops)
         a.bind(anchor, pick(rng, lookups.names))
         if all(walk[direction](steps[idx], a, rng, lookups) for idx, direction in order):
             return a.fill(template)

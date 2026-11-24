@@ -224,10 +224,6 @@ EASY_RELATIONS = EASY_FAMILY_RELATIONS + FRIENDSHIP_RELATION
 ALL_RELATIONS = list(FAMILY_RELATION_DIFFICULTY) + FRIENDSHIP_RELATION
 HOP_COUNTS = FAMILY_RELATION_DIFFICULTY | {r: 1 for r in FRIENDSHIP_RELATION}
 
-# R(X, Y) <=> R(Y, X) by their Prolog rules, so a relation is its own inverse
-SYMMETRIC_RELATIONS = frozenset({"sibling", "married", "cousin", "friend"})
-INVERSE_RELATIONS = {r: r if r in SYMMETRIC_RELATIONS else f"{r}_inverse" for r in ALL_RELATIONS}
-
 
 def relation_bank(hard_mode: bool) -> list[str]:
     """Relations that questions may use.

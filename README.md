@@ -5,8 +5,10 @@
 [![Paper](https://img.shields.io/badge/Paper-arXiv-red)](https://arxiv.org/abs/2609.40221)
 [![Models and data](https://img.shields.io/badge/Models%20%26%20Data-Huggingface-yellow)](https://huggingface.co/collections/kilian-group/phantom-environments-6ad68ec75e111b426ba8bf24)
 
-Rule-generated fictional worlds for training LLM search agents with reinforcement learning. Agents
-trained in these worlds transfer to real-world multi-hop QA.
+PhantomEnvironments generates synthetic RL environments that train LLMs as search agents. Each
+environment is a "fictional world": a fictional Wikipedia with questions about it. The generator
+runs cheaply on CPUs, distills from no other model, and computes every answer itself, so each task is
+fully verifiable. Agents trained in these fictional worlds transfer to real-world agentic search.
 
 <p align="center">
   <img src="assets/motivation-penv.png" alt="PhantomEnvironments" width="100%"/>
@@ -16,44 +18,34 @@ trained in these worlds transfer to real-world multi-hop QA.
   <img src="assets/search-agent.gif" alt="Qwen3.5-9B, trained with RL in PhantomEnvironments, answers a question in the pi harness with a search tool" width="100%"/>
 </p>
 
-Each environment is a fictional universe of people, written out as one article per person, plus
-questions whose answers are computed by Prolog. The agent searches the articles with
-`<search>query</search>`, reads the `<information>` that comes back, and ends with
-`<answer>...</answer>`, rewarded on the final answer. Or, in a terminal with the [pi](https://pi.dev)
-harness, it finds the articles with a search tool served over MCP, works with bash in a sandbox, and
-writes its answer to a file.
+Each environment is a fictional universe of people. The generator writes one article per person and
+asks questions whose answers it computes from the universe's facts. For each question, the agent
+searches the articles and reads what comes back, and the environment rewards its final answer. For
+instance, you can train an LLM in the [pi](https://pi.dev) agent harness, where it finds the articles
+with a search tool over MCP.
 
-## News
+## Examples
 
-- **2026-Nov-20:** [Train Qwen3.5-9B in the pi harness with a search tool](examples/train_pi_search_qwen35-9b.sh)
-  served over MCP, improving F1 score from 56% to 66%. The agent learns to run several searches per turn.
-  On an 8xH100 node, training took 13 hours.
-- **2026-Nov-19:** [Fine-tune Inkling 2 Small with Tinker](examples/train_inkling_tinker.sh) in the pi harness,
-  improving F1 score from 65% to 75% (Qwen4-Max: 69%). Training cost ~$145 on Tinker and took 6 hours.
-- **2026-Nov-19:** [Train Qwen3.5-9B in the pi harness](examples/train_pi_qwen35-9b.sh), with bash in a
-  sandbox, improving F1 score from 46% to 62% (Qwen4-Max: 69%). On an 8xH100 node, training took 15
-  hours (see [visualization](assets/terminal-agent.gif)).
-- **2026-Nov-17:** [Train Qwen3.5-9B in a coding agent harness](examples/train_shell_qwen35-9b.sh) to search
-  using bash commands, improving F1 score from 50% to 63% (Qwen4-Max: 65%). On an 8xH100 node, training
-  took 11 hours.
-- **2026-Nov-13:** Move to SkyRL Megatron backend support.
-  [Train Qwen3-30B-A3B MoE on PhantomWiki](examples/train_pw_qwen3-30b.sh) to improve agentic search
-  F1 score from 46% to 56%. On an 8xH100 node, training took 40 hours.
+With PhantomEnvironments, you can fine-tune LLMs of different sizes with RL to improve their real-world
+search: Qwen3.5-9B, Qwen3-30B-A3B, and Inkling 2 Small with Tinker. Agents train in the pi harness with
+bash and a search tool over MCP, in a ShellSim sandbox, or Search-R1 style. The trained agents are
+competitive with Qwen4-Max, a 2.4T-parameter model about 270 times the size of Qwen3.5-9B. See
+[examples/README.md](examples/README.md) for the scripts and their results.
 
 ## Installation
 
 ```bash
-# SWI-Prolog, to generate environments. On Ubuntu:
-sudo add-apt-repository -y ppa:swi-prolog/stable && sudo apt-get install -y swi-prolog-nox
-# ...or without root, in a conda env of its own (activate it while generating):
-conda create -n swipl -c conda-forge swi-prolog && conda activate swipl
-
 curl -LsSf https://astral.sh/uv/install.sh | sh
-uv sync --extra skyrl   # without --extra skyrl: environment generation only; add --extra tinker for Tinker
-cp .env.example .env    # W&B and run dirs
 
-# For the terminal style: bubblewrap, and its sandbox image (built with Docker; then set its path in .env)
+# `--extra skyrl` installs what training agents needs; omit it to only generate environments
+uv sync --extra skyrl
+cp .env.example .env
+
+# The terminal style runs each episode in a bubblewrap sandbox
 sudo apt-get install -y bubblewrap
+
+# Build the sandbox's image (bash, Python and the pi agent) with Docker and export its files to a
+# new dir. Then tell the sandbox where they are: set SANDBOX_ROOTFS=<dir> in .env
 bash scripts/sandbox/build_rootfs.sh <dir>
 ```
 
@@ -87,6 +79,10 @@ uv run phantom_envs generate \
 - `max_hops`, `max_constraints`: the hardest questions.
 - `kinds`: `base`, `count` ("How many ...") and `comparison` questions.
 - `hard_mode=true`: relations that span several articles, like `cousin`.
+- `friendship_degree`: the average number of friends per person (also `--friendship_degree`; 0.5 by
+  default, 3 in PhantomWiki). Above about 1, questions over several hops get many answers.
+- `--avoid_loops`: ask only about chains of distinct people, so no question passes a person twice
+  ("the mother of the child of Ann" who is Ann again).
 - `rewrite_docs_with_llm=openai/gpt-6-luna`: rewrite the template articles as Wikipedia-style
   biographies with the same facts, using that model on OpenRouter (set `OPENROUTER_API_KEY`).
 
@@ -101,7 +97,7 @@ env = phantom_envs.generate("data/envs/pwcons-seed3", config)
 print(env.tasks("train")[0])
 ```
 
-An environment dir holds `phantom_env.json` (the config and a content hash), `universe/` (the Prolog
+An environment dir holds `phantom_env.json` (the config and a content hash), `universe/` (the
 facts and articles), `corpus.jsonl` (the articles the agent searches) and `tasks/{train,validation}.jsonl`
 (the questions and answers).
 
@@ -132,10 +128,10 @@ bash scripts/skyrl/launch_skyrl.sh train e5 data/envs/pw
 ```
 
 The launcher starts the retrieval server, then trains with the Megatron backend of
-[SkyRL](https://github.com/novasky-ai/SkyRL) on every GPU in `CUDA_VISIBLE_DEVICES` (default: all);
-checkpoints go under `$RUN_BASE_DIR`. The default config trains Qwen2.5-3B-Instruct and is tuned for 2
-B200s (`scripts/skyrl/configs/base.yaml`).
-Model configs in `scripts/skyrl/configs/models/` and overrides stack on top:
+[SkyRL](https://github.com/novasky-ai/SkyRL) on every GPU in `CUDA_VISIBLE_DEVICES` (default: all),
+and saves checkpoints under `$RUN_BASE_DIR`. The default config (`scripts/skyrl/configs/base.yaml`)
+trains Qwen2.5-3B-Instruct, and we tuned it for 2 B200s. Model configs in
+`scripts/skyrl/configs/models/` and overrides stack on top:
 
 ```bash
 bash scripts/skyrl/launch_skyrl.sh train e5 data/envs/pw \
@@ -145,27 +141,30 @@ bash scripts/skyrl/launch_skyrl.sh train e5 data/envs/pw \
 
 #### Terminal style
 
-Train on PhantomWiki with its articles rewritten by an LLM (`rewrite_docs_with_llm` in step 1). Write
-the terminal parquets and pass `terminal` in place of the encoder and `--search=e5` for the search tool.
-Each episode runs pi in its own bubblewrap sandbox with bash and a search tool; the articles are not on
-disk, so the agent finds them by searching, and writes its answer to `/app/output.md`.
-[examples/train_pi_search_qwen35-9b.sh](examples/train_pi_search_qwen35-9b.sh) runs it end to end.
+Train on an environment whose articles an LLM has rewritten (`rewrite_docs_with_llm` in step 1). Write
+the terminal parquets, then pass `terminal` in place of the encoder and `--search=e5` for the search
+tool. Each episode runs pi in its own bubblewrap sandbox with bash and a search tool. The articles are
+not on disk, so the agent searches for them, and it writes its answer to `/app/output.md`.
+[examples/train_pi_search_qwen35-9b.sh](examples/train_pi_search_qwen35-9b.sh) runs all of it end to end.
 
 ```bash
 # Set CUDA_HOME in .env so that Qwen3.5 kernels get compiled for fast training
-uv run phantom_envs generate --preset pw --output_dir data/envs/pw-rewrite rewrite_docs_with_llm=openai/gpt-6-luna
-uv run python scripts/skyrl/prepare_data.py --data_dir data/envs/pw-rewrite --env terminal
-uv run --with faiss-cpu==1.12.0 python -m phantom_envs.retriever.build_index --data_dir data/envs/pw-rewrite
-bash scripts/skyrl/launch_skyrl.sh train terminal data/envs/pw-rewrite --search=e5 \
+# 10K people and ≈10K questions, none of which passes a person twice
+uv run phantom_envs generate --preset pw --output_dir data/envs/pw-10k-rewrite --avoid_loops \
+    size=10000 questions_per_template=200 rewrite_docs_with_llm=openai/gpt-6-luna
+uv run python scripts/skyrl/prepare_data.py --data_dir data/envs/pw-10k-rewrite --env terminal
+uv run --with faiss-cpu==1.12.0 python -m phantom_envs.retriever.build_index --data_dir data/envs/pw-10k-rewrite
+bash scripts/skyrl/launch_skyrl.sh train terminal data/envs/pw-10k-rewrite --search=e5 \
     --config scripts/skyrl/configs/models/Qwen3.5-9B.yaml \
+    trainer.epochs=1 \
     trainer.train_batch_size=128 \
     trainer.policy_mini_batch_size=128 \
     trainer.max_tokens_per_microbatch=12288 \
     trainer.hf_save_interval=20
 ```
 
-The search server runs on the first GPU beside the trainer. We paused the run at the step 100
-checkpoint when `pw` validation saturated near 100%.
+The search server runs on the first GPU beside the trainer. Training makes one pass over the
+training questions and exports the policy at the end.
 
 ### 4. Evaluate
 

@@ -4089,7 +4089,6 @@ dependencies = [
     { name = "numpy" },
     { name = "omegaconf" },
     { name = "pydantic" },
-    { name = "pyswip" },
     { name = "requests" },
     { name = "tqdm" },
 ]
@@ -4156,7 +4155,6 @@ requires-dist = [
     { name = "pyarrow", marker = "extra == 'skyrl'" },
     { name = "pydantic" },
     { name = "pystemmer", marker = "extra == 'skyrl'" },
-    { name = "pyswip" },
     { name = "pytest", marker = "extra == 'dev'" },
     { name = "pyyaml", marker = "extra == 'skyrl'" },
     { name = "requests" },
@@ -4726,15 +4724,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/4f/bc/58abda8bf0f87c18804a2ebfe05091417d121b3dde08a57e87aab8509fa4/pystemmer-3.1.0-cp312-cp312-win32.whl", hash = "sha256:2bab76be269302075cb892be2b884ae3c2ae22dd3d8fbcf20e01d969243719d0", size = 157476, upload-time = "2026-05-22T11:14:18.024Z" },
     { url = "https://files.pythonhosted.org/packages/e0/b9/785aff6e2ca5947bc7139ec320df0510f02ae2bbb625d534245a8fcda549/pystemmer-3.1.0-cp312-cp312-win_amd64.whl", hash = "sha256:805ac25b73d54200026ef4733a516d3b5a7598644454d5eb161f4ba73e43c9be", size = 225133, upload-time = "2026-05-22T11:14:19.219Z" },
     { url = "https://files.pythonhosted.org/packages/2a/81/0c5cabf4a6f92c1c42d248366b6d967be1da6ee75a993e2a1834620c5226/pystemmer-3.1.0-cp312-cp312-win_arm64.whl", hash = "sha256:ab2dfe428ef626eec34e5360d20a04c41cc14fd70a96e9866902d19dc27cc5b9", size = 226532, upload-time = "2026-05-22T11:14:20.818Z" },
-]
-
-[[package]]
-name = "pyswip"
-version = "0.3.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/ff/75/96b326387af00edd34c7cca121ce98c10062d7b8dc5ec73324727997f678/pyswip-0.3.3.tar.gz", hash = "sha256:745cc6d86046a4cf9ba775a76f00d97f7d9129f7517515228391d7399bc4fe3d", size = 35963, upload-time = "2025-06-23T00:07:11.433Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/b5/2b/c3bfc5a53714f7fb1b092aadb95277f133ce8c605f411f8888ca7ba340dd/pyswip-0.3.3-py3-none-any.whl", hash = "sha256:abddc4729917e3631e4a516e16211cbee93d4b701700eb116d6c3e8228ec3052", size = 36095, upload-time = "2025-06-23T00:07:09.282Z" },
 ]
 
 [[package]]

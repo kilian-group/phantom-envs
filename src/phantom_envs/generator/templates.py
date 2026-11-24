@@ -1,6 +1,7 @@
-"""Question and Prolog query templates, from a context-free grammar plus a few direct builders.
+"""Question and query templates, from a context-free grammar plus a few direct builders.
 
-A template is an abstract question with placeholders, and the Prolog query that answers it::
+A template is an abstract question with placeholders, and the query that answers it, written in
+Prolog syntax (`phantom_envs.generator.query` answers it):
 
     Who is the <relation>_3 of the person whose <attribute_name>_7 is <attribute_value>_7 ?
     <relation>_3(Y_5, Y_4), <attribute_name>_7(Y_5, <attribute_value>_7)      answer: Y_4
@@ -42,11 +43,11 @@ CHAIN_OFFSET_STRIDE = 1000
 
 @dataclass
 class Template:
-    """A question template, its Prolog query template, and what the query answers."""
+    """A question template, its query template, and what the query answers."""
 
     question: list[str] = field(metadata={"description": "Question tokens, ending with '?'."})
     query: list[str] = field(
-        metadata={"description": "Prolog atoms, outermost first (they run in reverse order)."}
+        metadata={"description": "Query atoms, outermost first (the chain starts at the last)."}
     )
     answer: str | tuple[str, str] = field(
         metadata={"description": "Answer variable, or for comparisons the two compared people."}
@@ -63,7 +64,7 @@ class Fragment:
     """
 
     q: list[str] = field(default_factory=list, metadata={"description": "Question tokens."})
-    p: list[str] = field(default_factory=list, metadata={"description": "Prolog atoms."})
+    p: list[str] = field(default_factory=list, metadata={"description": "Query atoms."})
     answer: str | None = field(default=None, metadata={"description": "Answer variable of the atoms."})
 
     def is_empty(self) -> bool:

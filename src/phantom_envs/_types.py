@@ -37,6 +37,13 @@ class EnvConfig:
     )
     size: int = field(default=1000, metadata={"description": "Target number of people (a multiple of 10)."})
     seed: int = field(default=1, metadata={"description": "Seed for the universe and the questions."})
+    friendship_degree: float = field(
+        default=0.5,
+        metadata={
+            "description": "Average number of friends per person (PhantomWiki has 3). Friendships link "
+            "the family trees; above about 1, questions over several hops get many answers."
+        },
+    )
     max_hops: int = field(default=6, metadata={"description": "Most relation hops in a question."})
     max_constraints: int = field(
         default=1, metadata={"description": "Most attribute constraints in a question."}
@@ -51,6 +58,13 @@ class EnvConfig:
         default="bidirectional",
         metadata={
             "description": "backward (walk from the chain's far end) or bidirectional (from a random anchor)."
+        },
+    )
+    avoid_loops: bool = field(
+        default=False,
+        metadata={
+            "description": "Sample only chains of distinct people: a walk never returns to a person it has "
+            'passed (no "the mother of the child of Ann" that is Ann again).'
         },
     )
     hard_mode: bool = field(

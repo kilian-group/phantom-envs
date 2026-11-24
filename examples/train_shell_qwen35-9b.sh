@@ -28,7 +28,9 @@ if [ -f .env ]; then
 fi
 
 # 1. Data: the pw environment and the benchmarks as terminal parquets (the terminal style needs no index)
-[ -f $ENV_DIR/corpus.jsonl ] || uv run phantom_envs generate --preset pw --output_dir $ENV_DIR --overwrite
+# 3 friends per person, as in our run (the default is 0.5)
+[ -f $ENV_DIR/corpus.jsonl ] || uv run phantom_envs generate --preset pw --output_dir $ENV_DIR --overwrite \
+    --friendship_degree 3
 [ -f $ENV_DIR/terminal/train.parquet ] || uv run python scripts/skyrl/prepare_data.py --data_dir $ENV_DIR --env terminal
 for d in $BENCHMARKS; do
     [ -f data/$d/terminal/validation.parquet ] && continue

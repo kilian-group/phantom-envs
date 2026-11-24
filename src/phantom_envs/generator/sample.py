@@ -6,7 +6,7 @@ the answer, so every sampled question has at least one answer. Example::
     Who is the <relation>_3 of the person whose <attribute_name>_1 is <attribute_value>_1 ?
     -> Who is the child of the person whose hobby is chess?
 
-The lookups behind the walk are cached per person in :class:`Lookups`.
+The walk reads each person's attributes and relatives through `Lookups`.
 """
 
 import re
@@ -14,12 +14,11 @@ from dataclasses import dataclass, field
 
 from numpy.random import Generator
 
-from phantom_envs.generator.prolog import Database, decode
+from phantom_envs.generator.relations import Database
 from phantom_envs.generator.templates import Template
 from phantom_envs.generator.vocab import (
     ATTRIBUTE_ALIASES,
     ATTRIBUTE_TYPES,
-    INVERSE_RELATIONS,
     RELATION_ALIAS,
     RELATION_PLURAL_ALIAS,
 )
@@ -39,11 +38,16 @@ COUNT_Y_Y_RE = re.compile(
 
 @dataclass
 class Lookups:
-    """A universe's people and their (attribute, value), (relation, person) and inverse pairs."""
+    """What the walks read about a person: their attributes, their relatives, and whose relative they are.
+
+    Each list is built from the database the first time a walk reaches the person, then reused.
+    """
 
     db: Database = field(metadata={"description": "The universe."})
     relations: list[str] = field(metadata={"description": "Relations questions may use."})
-    workers: int = field(default=1, metadata={"description": "Processes for batched queries."})
+    avoid_loops: bool = field(
+        default=False, metadata={"description": "Whether walks may only step to people they have not passed."}
+    )
     names: list[str] = field(default_factory=list, metadata={"description": "Everyone, in database order."})
     attributes: dict[str, list[tuple[str, str]]] = field(
         default_factory=dict, metadata={"description": "Person -> (attribute, value) pairs."}
@@ -56,65 +60,29 @@ class Lookups:
     )
 
     def __post_init__(self) -> None:
-        self.names = self.names or self.db.person_names()
-
-    def lookup(self, cache: dict, key: str, predicates: list[str], inverse: bool) -> list[tuple[str, str]]:
-        """Look up a person's pairs, querying Prolog on a cache miss.
-
-        Args:
-            cache: One of :attr:`attributes`, :attr:`related` or :attr:`inverse`.
-            key: The person.
-            predicates: Predicates P to query, ``P(key, A)``.
-            inverse: Query ``P(A, key)`` instead, through the inverse predicates.
-
-        Returns:
-            ``(P, A)`` for every solution, grouped by predicate in ``predicates`` order.
-        """
-        if key not in cache:
-            if inverse:
-                # R_inverse("key", A) uses first-argument indexing, unlike R(A, "key")
-                queries = [f'{INVERSE_RELATIONS[p]}("{key}", A)' for p in predicates]
-            else:
-                queries = [f'{p}("{key}", A)' for p in predicates]
-            results = self.db.batch_query(queries, self.workers)
-            cache[key] = [
-                (p, decode(r["A"])) for p, rows in zip(predicates, results, strict=True) for r in rows
-            ]
-        return cache[key]
+        self.names = self.names or self.db.names
 
     def attributes_of(self, person: str) -> list[tuple[str, str]]:
         """A person's (attribute, value) pairs."""
-        return self.lookup(self.attributes, person, ATTRIBUTE_TYPES, inverse=False)
+        if person not in self.attributes:
+            self.attributes[person] = [(a, value) for a in ATTRIBUTE_TYPES for value in self.db[a].of(person)]
+        return self.attributes[person]
 
     def related_to(self, person: str) -> list[tuple[str, str]]:
-        """``(R, Y)`` pairs with ``R(person, Y)``, i.e. Y is the person's R."""
-        return self.lookup(self.related, person, self.relations, inverse=False)
+        """`(R, Y)` pairs with `R(person, Y)`, i.e. Y is the person's R.
+
+        A walk draws from this list by position, so its order and repeats (see
+        `phantom_envs.generator.relations`) decide the sampled questions.
+        """
+        if person not in self.related:
+            self.related[person] = [(r, y) for r in self.relations for y in self.db[r].of(person)]
+        return self.related[person]
 
     def inverse_of(self, person: str) -> list[tuple[str, str]]:
-        """``(R, X)`` pairs with ``R(X, person)``, i.e. the person is X's R."""
-        return [
-            (r, p)
-            for r, p in self.lookup(self.inverse, person, self.relations, inverse=True)
-            if r in self.relations
-        ]
-
-    def prewarm(self, cache: dict, predicates: list[str], inverse: bool) -> None:
-        """Fill a cache for everyone at once, with one ``P(X, Y)`` query per predicate.
-
-        Much faster than querying person by person, but Prolog can order the solutions differently,
-        which changes the sampled questions; :func:`phantom_envs.generator.questions.sample_questions`
-        fixes when to prewarm.
-
-        Args:
-            cache: One of :attr:`attributes`, :attr:`related` or :attr:`inverse`.
-            predicates: Predicates to query.
-            inverse: Key the cache by Y (for :attr:`inverse`) instead of X.
-        """
-        results = self.db.batch_query([f"{p}(X, Y)" for p in predicates], self.workers)
-        for p, rows in zip(predicates, results, strict=True):
-            for r in rows:
-                x, y = decode(r["X"]), decode(r["Y"])
-                cache.setdefault(y if inverse else x, []).append((p, x if inverse else y))
+        """`(R, X)` pairs with `R(X, person)`, i.e. the person is X's R."""
+        if person not in self.inverse:
+            self.inverse[person] = [(r, x) for r in self.relations for x in self.db[r].inverse_of(person)]
+        return self.inverse[person]
 
 
 def pick(rng: Generator, items: list):
@@ -146,6 +114,27 @@ class Assignments:
     used_attributes: dict[str, set[tuple[str, str]]] = field(
         default_factory=dict, metadata={"description": "Y_i -> its (attribute, value) constraints so far."}
     )
+    avoid_loops: bool = field(
+        default=False, metadata={"description": "Whether the walk may only step to people it has not passed."}
+    )
+
+    def steps(self, options: list[tuple[str, str]]) -> list[tuple[str, str]]:
+        """Choose the steps the walk may take next.
+
+        Args:
+            options: `(relation, person)` pairs, the relatives of the walk's current person.
+
+        Returns:
+            All of them, or with `avoid_loops` those that lead to a person the walk has not passed.
+        """
+        if not self.avoid_loops:
+            return options
+        # The people the walk has passed: its named starting points and the people its variables stand for
+        passed = {
+            value[1:-1] for placeholder, value in self.query.items() if placeholder.startswith("<name>")
+        }
+        passed.update(self.atoms.values())
+        return [(relation, person) for relation, person in options if person not in passed]
 
     def bind(self, placeholder: str, person: str) -> None:
         """Bind a ``Y_i`` to a person through a fresh atom variable ``A_j``."""
@@ -188,7 +177,7 @@ class Assignments:
             template: The sampled template.
 
         Returns:
-            The question and the query; ``Y_i`` stay variables so Prolog finds every answer.
+            The question and the query; `Y_i` stay variables, so the query finds every answer.
         """
         joined = ",,".join(template.query)  # ",," because "," appears inside atoms
         for placeholder, value in self.query.items():
@@ -241,7 +230,7 @@ def walk_atom(atom: str, a: Assignments, rng: Generator, lookups: Lookups) -> bo
         relation, name, y = m.groups()
         person = pick(rng, lookups.names)
         a.query[name] = f'"{person}"'
-        options = lookups.related_to(person)
+        options = a.steps(lookups.related_to(person))
         if not options:
             return False
         rel, other = pick(rng, options)
@@ -253,7 +242,7 @@ def walk_atom(atom: str, a: Assignments, rng: Generator, lookups: Lookups) -> bo
         # "the <relation> of ...": follow a random relation of the current person
         relation, y1, y2 = m.groups()
         assert y1 in a.query and y2 not in a.query, f"{atom}: {y1} should be bound and {y2} free"
-        options = lookups.related_to(a.person(y1))
+        options = a.steps(lookups.related_to(a.person(y1)))
         if not options:
             return False
         rel, other = pick(rng, options)
@@ -277,7 +266,7 @@ def walk_atom(atom: str, a: Assignments, rng: Generator, lookups: Lookups) -> bo
         relation_plural, name, _, _ = m.groups()
         person = pick(rng, lookups.names)
         a.query[name] = f'"{person}"'
-        options = lookups.related_to(person)
+        options = a.steps(lookups.related_to(person))
         if not options:
             return False
         rel, _ = pick(rng, options)
@@ -288,7 +277,7 @@ def walk_atom(atom: str, a: Assignments, rng: Generator, lookups: Lookups) -> bo
         # "How many <relations> does ... have": a relation the current person has
         relation_plural, y1, y2, _ = m.groups()
         assert y1 in a.query and y2 not in a.query, f"{atom}: {y1} should be bound and {y2} free"
-        options = lookups.related_to(a.person(y1))
+        options = a.steps(lookups.related_to(a.person(y1)))
         if not options:
             return False
         rel, other = pick(rng, options)
@@ -319,7 +308,7 @@ def sample_backward(
     """
     for _ in range(attempts):
         # A fresh walk; the first dead end ends it
-        a = Assignments()
+        a = Assignments(avoid_loops=lookups.avoid_loops)
         if all(walk_atom(atom, a, rng, lookups) for atom in reversed(template.query)):
             return *a.fill(template), a.bindings()
     return None

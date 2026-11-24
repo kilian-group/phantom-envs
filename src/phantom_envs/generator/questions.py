@@ -1,4 +1,4 @@
-"""Sample questions from every template and answer them with Prolog.
+"""Sample questions from every template and answer them from the database.
 
 Each template restarts the random generator from the seed, so its questions do not depend on
 which other templates are generated.
@@ -7,12 +7,13 @@ which other templates are generated.
 import logging
 
 from numpy.random import default_rng
-from tqdm import tqdm
 
 from phantom_envs._types import EnvConfig
 from phantom_envs.generator.bidirectional import sample_bidirectional
 from phantom_envs.generator.difficulty import compute_difficulty
-from phantom_envs.generator.prolog import Database, decode
+from phantom_envs.generator.parallel import parallel_map
+from phantom_envs.generator.query import answer_query
+from phantom_envs.generator.relations import Database
 from phantom_envs.generator.sample import Lookups, sample_backward
 from phantom_envs.generator.templates import Template, generate_templates
 from phantom_envs.generator.vocab import ATTRIBUTE_TYPES, relation_bank
@@ -75,70 +76,91 @@ def sample_template(
     return samples
 
 
-def comparison_answer(template: Template, bindings: dict[str, str], lookups: Lookups) -> list[str]:
+def comparison_answer(template: Template, bindings: dict[str, str], db: Database) -> list[str]:
     """Answer a comparison from the two people its sample resolved to.
 
     Args:
         template: The comparison template; its answer holds the two people's variables.
         bindings: Placeholder -> person, from the sample.
-        lookups: The universe's lookups (for dates of birth).
+        db: The universe (for dates of birth).
 
     Returns:
-        The older of the two (the younger for "Who is younger"); a tie goes to the second.
+        The person the question asks for; a tie goes to the second.
+
+    Raises:
+        ValueError: If the question is not one of the comparison phrasings.
     """
     left, right = (bindings[v] for v in template.answer)
-    left_dob, right_dob = (next(v for a, v in lookups.attributes_of(p) if a == "dob") for p in (left, right))
-    if template.question[0] == "Who is younger,":
-        return [left] if left_dob > right_dob else [right]
-    return [left] if left_dob < right_dob else [right]
+    left_dob, right_dob = (db["dob"].of(person)[0] for person in (left, right))
+    match template.question[0]:
+        case "Who is older," | "Who was born first,":
+            return [left] if left_dob < right_dob else [right]
+        case "Who is younger,":
+            return [left] if left_dob > right_dob else [right]
+        case phrasing:
+            raise ValueError(f"Cannot answer the comparison {phrasing!r}")
 
 
-def sample_questions(db: Database, config: EnvConfig, workers: int = 1) -> list[dict]:
+def answer_sample(
+    db: Database, templates: list[Template], index: int, sample: tuple[str, list[str], dict]
+) -> dict:
+    """Answer one sampled question and score its difficulty.
+
+    Args:
+        db: The universe.
+        templates: The config's templates.
+        index: The template the sample comes from.
+        sample: The question, its query and its bindings, from `sample_template`.
+
+    Returns:
+        A dict with `question`, `answers`, `kind`, `template`, `prolog` (`query` and `answer` variable)
+        and `difficulty`.
+    """
+    template = templates[index]
+    question, query, bindings = sample
+    if template.kind == "comparison":
+        # The sample already names the two people to compare
+        answers = comparison_answer(template, bindings, db)
+    else:
+        answers = answer_query(db, query, template.answer)
+    answer_var = str(template.answer)
+    return {
+        "question": question,
+        "answers": answers,
+        "kind": template.kind,
+        "template": index,
+        "prolog": {"query": query, "answer": answer_var},
+        "difficulty": compute_difficulty(query, answer_var=answer_var),
+    }
+
+
+def sample_questions(db: Database, config: EnvConfig, num_workers: int = 1) -> list[dict]:
     """Sample and answer the questions of all of a config's templates.
 
     Args:
-        db: The universe, with inverse relations added for the bidirectional sampler.
+        db: The universe.
         config: The environment config.
-        workers: Processes for the Prolog queries.
+        num_workers: Processes to sample and answer with; the questions do not depend on it.
 
     Returns:
-        In template order, dicts with ``question``, ``answers``, ``kind``, ``template`` (index into the config's
-        templates), ``prolog`` (``query`` and ``answer`` variable) and ``difficulty``.
+        The questions (see `answer_sample`), in template order.
     """
     templates = samplable_templates(config)
-    # Everyone's attributes up front; relations too for bidirectional sampling, as in PhantomWiki
-    # (prewarmed relation lookups can list relatives in another order, changing the backward walks)
-    lookups = Lookups(db, relation_bank(config.hard_mode), workers)
-    lookups.prewarm(lookups.attributes, ATTRIBUTE_TYPES, inverse=False)
-    if config.sampler == "bidirectional":
-        lookups.prewarm(lookups.related, lookups.relations, inverse=False)
-        lookups.prewarm(lookups.inverse, lookups.relations, inverse=True)
+    lookups = Lookups(db, relation_bank(config.hard_mode), config.avoid_loops)
+    db.derive(lookups.relations + ATTRIBUTE_TYPES)
 
-    samples = [
-        (i, sample)
-        for i, template in enumerate(tqdm(templates, desc="Sampling questions"))
-        for sample in sample_template(template, config, lookups)
-    ]
-
-    # Prolog answers everything but comparisons, whose two people are known from the sample
-    chain = [(i, query) for i, (_, query, _) in samples if templates[i].kind != "comparison"]
-    results = iter(db.batch_query([", ".join(reversed(query)) for _, query in chain], workers))
-    questions = []
-    for i, (question, query, bindings) in samples:
-        template = templates[i]
-        if template.kind == "comparison":
-            answers = comparison_answer(template, bindings, lookups)
-        else:
-            answers = sorted({str(decode(row[template.answer])) for row in next(results)})
-        answer_var = str(template.answer)
-        questions.append(
-            {
-                "question": question,
-                "answers": answers,
-                "kind": template.kind,
-                "template": i,
-                "prolog": {"query": query, "answer": answer_var},
-                "difficulty": compute_difficulty(query, answer_var=answer_var),
-            }
-        )
-    return questions
+    # A template's questions do not depend on the other templates, nor an answer on other questions,
+    # so workers can share out both
+    sampled = parallel_map(
+        lambda template: sample_template(template, config, lookups),
+        templates,
+        num_workers,
+        desc="Sampling questions",
+    )
+    samples = [(index, sample) for index, of_template in enumerate(sampled) for sample in of_template]
+    return parallel_map(
+        lambda indexed: answer_sample(db, templates, *indexed),
+        samples,
+        num_workers,
+        desc="Answering questions",
+    )

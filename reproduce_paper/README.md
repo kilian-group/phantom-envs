@@ -5,6 +5,15 @@ This guide rebuilds the datasets, training runs, evaluations, tables and figures
 assumes the [installation](../README.md#installation) with the `skyrl` extra, SWI-Prolog, and a `.env`
 with your W&B settings and run directory. Run every command from the repo root.
 
+The paper's generators (and the `paper` tag below) run on SWI-Prolog. Install it on Ubuntu, or without
+root in a conda env of its own, which you activate while generating:
+
+```bash
+sudo add-apt-repository -y ppa:swi-prolog/stable && sudo apt-get install -y swi-prolog-nox
+# ...or
+conda create -n swipl -c conda-forge swi-prolog && conda activate swipl
+```
+
 The paper's experiments trained with SkyRL's FSDP backend: for their library versions and experiments,
 use the repo's [`paper`](https://github.com/kilian-group/phantom-envs/tree/paper) tag
 (`git checkout paper`) and follow its copy of this guide.
