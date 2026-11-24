@@ -26,16 +26,11 @@ with a search tool over MCP.
 
 ## Examples
 
-Each script in `examples/` generates training data, trains a model, and evaluates it on six real-world
-multi-hop QA benchmarks. F1 is their average, before and after training.
-
-| LLM | F1 score gain | Harness | Hardware |
-|---|---|---|---|
-| [Qwen3.5-9B](examples/train_pi_search_qwen35-9b.sh) | 56 → 65 (+9) | pi + bash + search MCP | 9 h on 8xH100 |
-| [Inkling 2 Small](examples/train_inkling_tinker.sh) | 65 → 75 (+10) | pi + bash | 6 h, ~$145 with Tinker |
-| [Qwen3.5-9B](examples/train_pi_qwen35-9b.sh) | 46 → 62 (+16) | pi + bash ([visualization](assets/terminal-agent.gif)) | 15 h on 8xH100 |
-| [Qwen3.5-9B](examples/train_shell_qwen35-9b.sh) | 50 → 63 (+13) | ShellSim + bash | 11 h on 8xH100 |
-| [Qwen3-30B-A3B](examples/train_pw_qwen3-30b.sh) | 46 → 56 (+10) | Search-R1 style | 40 h on 8xH100 |
+With PhantomEnvironments, you can fine-tune LLMs of different sizes with RL to improve their real-world
+search: Qwen3.5-9B, Qwen3-30B-A3B, and Inkling 2 Small with Tinker. Agents train in the pi harness with
+bash and a search tool over MCP, in a ShellSim sandbox, or Search-R1 style. The trained agents are
+competitive with Qwen4-Max, a 2.4T-parameter model about 270 times the size of Qwen3.5-9B. See
+[examples/README.md](examples/README.md) for the scripts and their results.
 
 ## Installation
 
